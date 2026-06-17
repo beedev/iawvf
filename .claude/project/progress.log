@@ -1,0 +1,2 @@
+2026-06-17T00:00:00Z	init	mode=greenfield	features=13	stack=dotnet-8+aspnetcore-8+ef-core-8+postgresql+react-18+vite+fluent-ui-v9
+2026-06-17T00:00:01Z	goals	G1=enterprise-quality(mandatory)	G2=security-vuln-verified(mandatory)	G3=rich-ui-ux-via-stitch(mandatory)

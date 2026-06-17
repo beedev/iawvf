@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+*.user
+appsettings.*.local.json
+.vs/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+*.local
+playwright-report/
+test-results/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+
+# OS
+.DS_Store
