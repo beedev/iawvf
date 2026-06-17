@@ -1,0 +1,11 @@
+{
+  "test": { "code": "NGS-P-001", "orderedTest": "NGS-P-001" },
+  "patient": { "age": 60, "gender": "Male" },
+  "order": {
+    "product": "RaDaR",
+    "timepoint": "First",
+    "client": { "nyStatus": "Standard" },
+    "performingLab": "Lab-NY-1",
+    "specimens": [ { "type": "ParaffinTissue" }, { "type": "PeripheralBlood" } ]
+  }
+}

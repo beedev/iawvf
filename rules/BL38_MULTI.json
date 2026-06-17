@@ -1,0 +1,59 @@
+{
+  "key": "BL38_MULTI",
+  "name": "RaDaR first-timepoint requires both ParaffinTissue and PeripheralBlood specimens",
+  "description": "Multi-record placeholder: a RaDaR first-timepoint order must have both ParaffinTissue and PeripheralBlood specimen types; missing specimens trigger CreatePlaceholder.",
+  "priority": 35,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "order.product",
+        "operator": "Equals",
+        "value": "RaDaR"
+      },
+      {
+        "type": "leaf",
+        "subject": "order.timepoint",
+        "operator": "Equals",
+        "value": "First"
+      }
+    ]
+  },
+  "assert": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "order.specimens[].type",
+        "operator": "Equals",
+        "value": "ParaffinTissue",
+        "quantifier": "Any"
+      },
+      {
+        "type": "leaf",
+        "subject": "order.specimens[].type",
+        "operator": "Equals",
+        "value": "PeripheralBlood",
+        "quantifier": "Any"
+      }
+    ]
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "CreatePlaceholder",
+    "scope": "specimen",
+    "reason": "RaDaR first-timepoint order missing required specimen types",
+    "parameters": {
+      "SpecimenType": "PeripheralBlood"
+    }
+  }
+}

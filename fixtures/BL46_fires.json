@@ -1,0 +1,5 @@
+{
+  "test": { "code": "FISH-T-001", "orderedTest": "FISH-T-001" },
+  "patient": { "age": 55, "gender": "Female" },
+  "order": { "type": "FollowUp", "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

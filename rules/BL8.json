@@ -1,0 +1,31 @@
+{
+  "key": "BL8",
+  "name": "NY-regulated order requires NY-validated performing lab",
+  "description": "When the ordering client is NY-regulated, the performing lab must be on the NY-validated lab list.",
+  "priority": 30,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "order.client.nyStatus",
+    "operator": "Equals",
+    "value": "NYRegulated"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "order.performingLab",
+    "operator": "IsEligibleFor",
+    "reference": "TestCompendium.nyValidation"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "ComplianceAlert",
+    "scope": "order",
+    "reason": "Performing lab not on NY-validated list for NY-regulated client",
+    "severity": "informational"
+  }
+}

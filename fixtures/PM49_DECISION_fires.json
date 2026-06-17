@@ -1,0 +1,6 @@
+{
+  "medicalReview": { "decision": "Reject", "reviewer": "Dr. Smith", "reviewedAt": "2026-06-17T10:00:00Z" },
+  "test": { "code": "FISH-T-001", "orderedTest": "FISH-T-001" },
+  "patient": { "age": 55, "gender": "Male" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

@@ -1,0 +1,6 @@
+{
+  "test": { "code": "IHC-P-001", "orderedTest": "IHC-P-001" },
+  "specimen": { "age": 45, "type": "FFPE", "fixationTime": 24, "archiveRetrievalDate": "2026-06-01T00:00:00Z" },
+  "patient": { "age": 55, "gender": "Female" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

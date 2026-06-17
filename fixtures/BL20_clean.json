@@ -1,0 +1,6 @@
+{
+  "test": { "code": "CYTOG-1", "orderedTest": "CYTOG-1" },
+  "specimen": { "type": "BoneMarrow", "bodySite": "Iliac Crest", "age": 2 },
+  "patient": { "age": 60, "gender": "Male" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ { "type": "BoneMarrow" } ] }
+}

@@ -1,0 +1,53 @@
+{
+  "key": "BL36",
+  "name": "Placeholder PB specimen for RaDaR first timepoint",
+  "description": "On a RaDaR first-timepoint order where paraffin tissue was received but no peripheral blood specimen is present, create a placeholder peripheral-blood specimen record.",
+  "priority": 35,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "order.product",
+        "operator": "Equals",
+        "value": "RaDaR"
+      },
+      {
+        "type": "leaf",
+        "subject": "order.timepoint",
+        "operator": "Equals",
+        "value": "First"
+      },
+      {
+        "type": "leaf",
+        "subject": "order.specimens[].type",
+        "operator": "Equals",
+        "value": "ParaffinTissue",
+        "quantifier": "Any"
+      }
+    ]
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "order.specimens[].type",
+    "operator": "Equals",
+    "value": "PeripheralBlood",
+    "quantifier": "Any"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "CreatePlaceholder",
+    "scope": "specimen",
+    "reason": "Required peripheral blood specimen not yet received",
+    "parameters": {
+      "SpecimenType": "PeripheralBlood"
+    }
+  }
+}

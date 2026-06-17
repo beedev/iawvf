@@ -1,0 +1,41 @@
+{
+  "key": "PM17",
+  "name": "Circled H\u0026E required for Technical FISH on FFPE",
+  "description": "A circled H\u0026E slide must be present when a Technical FISH test is ordered on an FFPE specimen.",
+  "priority": 10,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "test.code",
+        "operator": "InSet",
+        "reference": "TechnicalFISH"
+      },
+      {
+        "type": "leaf",
+        "subject": "test.specimen.type",
+        "operator": "Equals",
+        "value": "FFPE"
+      }
+    ]
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "document.circledHE",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "CompleteHold",
+    "scope": "order",
+    "reason": "Circled H\u0026E not present for Technical FISH on FFPE"
+  }
+}

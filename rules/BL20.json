@@ -1,0 +1,38 @@
+{
+  "key": "BL20",
+  "name": "Derive body site for Bone Marrow specimens",
+  "description": "When the specimen type is Bone Marrow and no body site is recorded, stamp the body site as Bone Marrow. A degenerate (derivation) rule: it applies only when the body site is absent and produces the derived value.",
+  "priority": 6,
+  "phase": "Derive",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "specimen.type",
+        "operator": "Equals",
+        "value": "BoneMarrow"
+      },
+      {
+        "type": "leaf",
+        "subject": "specimen.bodySite",
+        "operator": "IsAbsent"
+      }
+    ]
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "SetValue",
+    "reason": "Body site defaulted to Bone Marrow for Bone Marrow specimen",
+    "parameters": {
+      "Target": "specimen.bodySite",
+      "Value": "BoneMarrow"
+    }
+  }
+}

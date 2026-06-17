@@ -1,0 +1,29 @@
+{
+  "key": "PM48",
+  "name": "Archive retrieval date required for aged specimens",
+  "description": "When specimen age exceeds the archive-age threshold, an archive retrieval date must be recorded.",
+  "priority": 20,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "specimen.age",
+    "operator": "GreaterThan",
+    "reference": "PolicyThresholds.archiveAgeDays"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "specimen.archiveRetrievalDate",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "PartialHold",
+    "scope": "test",
+    "reason": "Archive retrieval date missing for specimen older than threshold"
+  }
+}

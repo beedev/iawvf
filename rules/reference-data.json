@@ -1,0 +1,36 @@
+{
+  "PolicyThresholds": {
+    "archiveAgeDays": 30,
+    "pediatricAge": 19,
+    "fixationWindow": {
+      "min": 6,
+      "max": 72
+    },
+    "escalationInterval": 24
+  },
+  "PolicyDefaults": {
+    "fallbackGender": "Other"
+  },
+  "TestCompendium": [
+    "FISH-T-001",
+    "FISH-T-002",
+    "IHC-P-001",
+    "NGS-P-001",
+    "CYTOG-1"
+  ],
+  "TestCompendium.nyValidation": [
+    "Lab-NY-1",
+    "Lab-NY-2"
+  ],
+  "TestCompendium.compatibleSpecimens": [
+    "FFPE",
+    "FreshTissue",
+    "BoneMarrow",
+    "PeripheralBlood"
+  ],
+  "TechnicalFISH": [
+    "FISH-T-001",
+    "FISH-T-002"
+  ],
+  "PatientHistory": true
+}

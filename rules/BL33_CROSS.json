@@ -1,0 +1,41 @@
+{
+  "key": "BL33_CROSS",
+  "name": "FollowUp order requires prior timepoint to be complete",
+  "description": "Cross-entity sequencing: a FollowUp order can only proceed when the prior timepoint status is Complete.",
+  "priority": 15,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "order.type",
+        "operator": "Equals",
+        "value": "FollowUp"
+      },
+      {
+        "type": "leaf",
+        "subject": "priorTimepoint.status",
+        "operator": "IsPresent"
+      }
+    ]
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "priorTimepoint.status",
+    "operator": "Equals",
+    "value": "Complete"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "CompleteHold",
+    "scope": "order",
+    "reason": "FollowUp order requires prior timepoint to be Complete"
+  }
+}

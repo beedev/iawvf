@@ -1,0 +1,9 @@
+{
+  "test": { "code": "FISH-T-001", "orderedTest": "FISH-T-001" },
+  "patient": { "age": 60, "gender": "Male" },
+  "order": {
+    "client": { "nyStatus": "Standard" },
+    "performingLab": "Lab-NY-1",
+    "specimens": [ { "type": "Saliva" } ]
+  }
+}

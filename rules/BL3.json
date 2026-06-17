@@ -1,0 +1,27 @@
+{
+  "key": "BL3",
+  "name": "Assign Pediatric priority for patients under 19",
+  "description": "Stamps test.priority = \u0027Pediatric\u0027 when patient.age \u003C pediatricAge threshold. No assertion; runs OnFailure as derivation when AppliesWhen holds.",
+  "priority": 10,
+  "phase": "Derive",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "patient.age",
+    "operator": "LessThan",
+    "reference": "PolicyThresholds.pediatricAge"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "SetValue",
+    "reason": "Pediatric priority derived from patient age",
+    "parameters": {
+      "Target": "test.priority",
+      "Value": "Pediatric"
+    }
+  }
+}

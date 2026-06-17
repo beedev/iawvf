@@ -1,0 +1,5 @@
+{
+  "incident": { "id": "INC-001", "ageHours": 30 },
+  "patient": { "age": 55, "gender": "Male" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1" }
+}

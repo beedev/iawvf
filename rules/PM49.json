@@ -1,0 +1,33 @@
+{
+  "key": "PM49",
+  "name": "Fixation time review for CAP-governed testing",
+  "description": "For CAP-governed tests, the specimen fixation time must fall within the configured acceptable window; if it does not, route the test to Medical review before any testing proceeds.",
+  "priority": 20,
+  "phase": "Route",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "test.capGoverned",
+    "operator": "Equals",
+    "value": true
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "specimen.fixationTime",
+    "operator": "WithinRange",
+    "reference": "PolicyThresholds.fixationWindow"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "RouteToReview",
+    "scope": "test",
+    "reason": "Fixation time outside acceptable window",
+    "parameters": {
+      "Destination": "MedicalReview"
+    }
+  }
+}

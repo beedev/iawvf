@@ -1,0 +1,1 @@
+{"test":{"code":"FISH-T-001","specimen":{"type":"Fresh"},"orderedTest":"FISH-T-001"},"specimen":{"type":"Fresh","age":2},"patient":{"age":50,"gender":"Female"},"order":{"client":{"nyStatus":"NYRegulated"},"performingLab":"Lab-CA-1","specimens":[{}]}}

@@ -1,0 +1,32 @@
+{
+  "key": "BL46",
+  "name": "Follow-up order requires qualifying initial order",
+  "description": "A follow-up order may only be submitted when a qualifying initial order already exists for the patient; otherwise submission is prevented.",
+  "priority": 40,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "order.type",
+    "operator": "Equals",
+    "value": "FollowUp"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "order.qualifyingInitialOrder",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "PreventAction",
+    "scope": "order",
+    "reason": "No qualifying initial order exists for this patient",
+    "parameters": {
+      "Action": "submit-order"
+    }
+  }
+}

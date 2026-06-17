@@ -1,0 +1,1 @@
+{"test":{"code":"IHC-P-001","orderedTest":"IHC-P-001"},"specimen":{"type":"FFPE","age":45,"fixationTime":20},"patient":{"age":55,"gender":"Female"},"order":{"client":{"nyStatus":"Standard"},"performingLab":"Lab-NY-1","specimens":[{}]}}

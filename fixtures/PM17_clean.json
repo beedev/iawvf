@@ -1,0 +1,7 @@
+{
+  "test": { "code": "FISH-T-001", "specimen": { "type": "FFPE" }, "orderedTest": "FISH-T-001" },
+  "document": { "circledHE": "slide-HE-001" },
+  "specimen": { "type": "FFPE", "age": 10, "fixationTime": 24 },
+  "patient": { "age": 45, "gender": "Male" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

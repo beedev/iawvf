@@ -1,0 +1,37 @@
+{
+  "key": "PM13",
+  "name": "Specimen type compatible with ordered test",
+  "description": "Each ordered test must have a compatible specimen type per the Test Compendium. If none on the order is compatible, attempt to find an alternate specimen; only if none exists, place a complete problem hold on the order.",
+  "priority": 10,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "test.orderedTest",
+    "operator": "IsPresent"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "order.specimens[].type",
+    "operator": "IsCompatibleWith",
+    "reference": "TestCompendium.compatibleSpecimens",
+    "quantifier": "Any"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "recover": {
+    "strategy": "find-alternate-specimen",
+    "parameters": {
+      "scope": "same-order",
+      "match": "test.orderedTest"
+    }
+  },
+  "onFailure": {
+    "type": "CompleteHold",
+    "scope": "order",
+    "reason": "No viable specimen for ordered test"
+  }
+}

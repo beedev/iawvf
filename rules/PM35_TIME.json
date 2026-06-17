@@ -1,0 +1,27 @@
+{
+  "key": "PM35_TIME",
+  "name": "Escalate stale incident after threshold interval",
+  "description": "Time-triggered rule: when an incident has been open at least the escalation interval (hours), route to EscalationQueue.",
+  "priority": 10,
+  "phase": "Route",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "incident.ageHours",
+    "operator": "GreaterOrEqual",
+    "reference": "PolicyThresholds.escalationInterval"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "RouteToReview",
+    "scope": "order",
+    "reason": "Incident has exceeded escalation interval",
+    "parameters": {
+      "Destination": "EscalationQueue"
+    }
+  }
+}

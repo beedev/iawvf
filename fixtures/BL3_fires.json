@@ -1,0 +1,6 @@
+{
+  "test": { "code": "NGS-P-001", "orderedTest": "NGS-P-001" },
+  "specimen": { "type": "Blood", "age": 1 },
+  "patient": { "age": 8, "gender": "Male" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

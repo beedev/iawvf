@@ -24,14 +24,28 @@ public sealed class JsonRuleRepository : IRuleRepository
         return new JsonRuleRepository(RuleSerializer.DeserializeMany(json));
     }
 
-    /// <summary>Loads rules from every <c>*.json</c> file in a directory (each file may hold one rule or an array).</summary>
+    /// <summary>The reference-data sidecar file name, which legitimately lives in the rules directory but is not a rule.</summary>
+    private const string ReferenceDataFileName = "reference-data.json";
+
+    /// <summary>Loads rules from every rule <c>*.json</c> file in a directory (each file may hold one rule or an array).</summary>
     /// <param name="directoryPath">The directory path.</param>
     /// <returns>A new repository.</returns>
+    /// <remarks>
+    /// The well-known <c>reference-data.json</c> sidecar is skipped: it is an object document consumed by
+    /// <see cref="ReferenceData.JsonReferenceDataProvider"/>, not a rule, and the rules and reference data are
+    /// intended to co-locate in the same directory.
+    /// </remarks>
     public static JsonRuleRepository FromDirectory(string directoryPath)
     {
         var rules = new List<RuleDefinition>();
         foreach (var file in Directory.EnumerateFiles(directoryPath, "*.json", SearchOption.TopDirectoryOnly).OrderBy(f => f, StringComparer.Ordinal))
         {
+            // Skip the reference-data sidecar — it is not a rule document.
+            if (string.Equals(Path.GetFileName(file), ReferenceDataFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var json = File.ReadAllText(file).TrimStart();
             if (json.StartsWith('['))
             {

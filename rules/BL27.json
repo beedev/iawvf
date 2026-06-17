@@ -1,0 +1,30 @@
+{
+  "key": "BL27",
+  "name": "Default patient gender when absent",
+  "description": "When patient.gender is absent, recovery stamps PolicyDefaults.fallbackGender and suppresses the hold.",
+  "priority": 5,
+  "phase": "Derive",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "assert": {
+    "type": "leaf",
+    "subject": "patient.gender",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "recover": {
+    "strategy": "apply-default",
+    "parameters": {
+      "Target": "patient.gender",
+      "Value": null,
+      "Reference": "PolicyDefaults.fallbackGender"
+    }
+  },
+  "onFailure": {
+    "type": "Suppressed",
+    "reason": "Default gender applied"
+  }
+}
