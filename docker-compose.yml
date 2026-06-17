@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: iaw
       POSTGRES_PASSWORD: iaw
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - iaw-pgdata:/var/lib/postgresql/data
     healthcheck:
