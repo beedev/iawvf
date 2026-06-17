@@ -124,8 +124,13 @@ public sealed class VocabularyCatalog
             .AddSubject("order.timepoint", SubjectDataType.String)
             .AddSubject("order.client.nyStatus", SubjectDataType.String)
             .AddSubject("order.performingLab", SubjectDataType.String)
+            .AddSubject("order.qualifyingInitialOrder", SubjectDataType.String)
             .AddSubject("order.tests[]", SubjectDataType.Collection)
-            .AddSubject("order.specimens[]", SubjectDataType.Collection);
+            .AddSubject("order.specimens[]", SubjectDataType.Collection)
+            // Subjects used by the extension-case rules (time trigger, human decision, cross-entity).
+            .AddSubject("incident.ageHours", SubjectDataType.Number)
+            .AddSubject("medicalReview.decision", SubjectDataType.String)
+            .AddSubject("priorTimepoint.status", SubjectDataType.String);
 
         // All operators are part of the closed vocabulary.
         foreach (var op in Enum.GetValues<OperatorKind>())
@@ -138,9 +143,11 @@ public sealed class VocabularyCatalog
             .AddReference("PolicyThresholds.archiveAgeDays")
             .AddReference("PolicyThresholds.pediatricAge")
             .AddReference("PolicyThresholds.fixationWindow")
+            .AddReference("PolicyThresholds.escalationInterval")
             .AddReference("PolicyDefaults.fallbackGender")
             .AddReference("TestCompendium")
             .AddReference("TestCompendium.nyValidation")
+            .AddReference("TestCompendium.compatibleSpecimens")
             .AddReference("TechnicalFISH")
             .AddReference("PatientHistory");
 

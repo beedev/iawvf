@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neogenomics.com/iaw/vdf/rule.schema.json",
+  "title": "RuleDefinition",
+  "description": "Schema for a compiled IAW VDF RuleDefinition in JSON wire format.",
+  "type": "object",
+  "required": ["key", "name", "onFailure"],
+  "properties": {
+    "key": {
+      "type": "string",
+      "description": "Unique rule identifier."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the rule."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional detailed description."
+    },
+    "ruleSet": {
+      "type": "string",
+      "description": "Optional rule-set grouping key."
+    },
+    "priority": {
+      "type": "integer",
+      "description": "Execution ordering priority (lower = first)."
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["Derive", "Validate", "Route"],
+      "description": "The evaluation phase this rule belongs to."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether the rule is active."
+    },
+    "version": {
+      "type": "integer",
+      "description": "Rule version number."
+    },
+    "effectiveDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The date from which this rule is effective."
+    },
+    "expiryDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The optional date after which this rule expires."
+    },
+    "appliesWhen": {
+      "$ref": "#/$defs/condition",
+      "description": "Guard condition: rule only runs when this evaluates to true."
+    },
+    "assert": {
+      "$ref": "#/$defs/condition",
+      "description": "The assertion condition; failure triggers OnFailure."
+    },
+    "onSuccess": {
+      "$ref": "#/$defs/outcome",
+      "description": "Outcome produced when assertion passes."
+    },
+    "recover": {
+      "$ref": "#/$defs/recovery",
+      "description": "Optional recovery strategy attempted before producing OnFailure."
+    },
+    "onFailure": {
+      "$ref": "#/$defs/outcome",
+      "description": "Outcome produced when assertion fails (required)."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "condition": {
+      "oneOf": [
+        { "$ref": "#/$defs/leafCondition" },
+        { "$ref": "#/$defs/groupCondition" }
+      ]
+    },
+    "leafCondition": {
+      "type": "object",
+      "description": "A terminal condition node.",
+      "required": ["type", "subject", "operator"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "leaf"
+        },
+        "subject": {
+          "type": "string",
+          "description": "The fact path (subject) to evaluate."
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "IsPresent", "IsAbsent",
+            "Equals", "NotEquals",
+            "InSet", "NotInSet",
+            "GreaterThan", "LessThan", "GreaterOrEqual", "LessOrEqual", "WithinRange",
+            "Matches", "IsCompatibleWith", "IsEligibleFor", "Exists"
+          ],
+          "description": "The comparison operator."
+        },
+        "value": {
+          "description": "Inline literal value to compare against."
+        },
+        "reference": {
+          "type": "string",
+          "description": "Reference data key to resolve the comparand."
+        },
+        "quantifier": {
+          "type": "string",
+          "enum": ["This", "Any", "Every"],
+          "description": "Quantifier for collection subjects."
+        }
+      },
+      "additionalProperties": false
+    },
+    "groupCondition": {
+      "type": "object",
+      "description": "A boolean combinator over a list of conditions.",
+      "required": ["type", "logicalOp", "conditions"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "group"
+        },
+        "logicalOp": {
+          "type": "string",
+          "enum": ["All", "Any", "Not"],
+          "description": "The logical operator applied to the child conditions."
+        },
+        "conditions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/condition" },
+          "description": "The child conditions."
+        }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "object",
+      "description": "An outcome produced by a rule.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "Continue", "Suppressed",
+            "CompleteHold", "PartialHold", "Warning", "ComplianceAlert",
+            "RouteToReview", "RouteToQueue", "Escalate",
+            "SetValue", "ApplyDefault", "CalculateValue",
+            "CreatePlaceholder", "CreateIncident", "CreateTask",
+            "PreventAction", "AllowAction"
+          ],
+          "description": "The outcome type."
+        },
+        "scope": {
+          "type": "string",
+          "description": "The scope of the outcome (e.g., order, test, specimen)."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable reason for the outcome."
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity level of the outcome."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Additional parameters for the outcome.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "recovery": {
+      "type": "object",
+      "description": "A recovery strategy attempted before producing OnFailure.",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "The recovery strategy identifier."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Parameters for the recovery strategy.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
