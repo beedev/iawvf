@@ -120,6 +120,32 @@ npx prisma migrate dev   # apply/author migrations
 npm run prisma:studio    # browse the DB
 ```
 
+### Test database isolation
+
+Tests **never touch the development database** (`iawnode`). Both Jest configs
+(the unit/e2e block in `package.json` and `test/jest-e2e.json`) route all suites
+to a dedicated database, **`iawnode_test`**, so the destructive `deleteMany()` /
+seed-if-empty calls in the DB-backed specs only ever wipe test data.
+
+How it works (`test/`):
+
+- `test-database.ts` — the canonical test connection string
+  (`postgresql://iaw:iaw@localhost:5433/iawnode_test?schema=public`). The
+  credentials are the local dev Postgres creds; no secret is committed.
+- `jest-global-setup.ts` — Jest `globalSetup`. Runs once before the suite: pins
+  `DATABASE_URL` to the test DB and applies the schema via `prisma migrate deploy`
+  (idempotent).
+- `jest-setup-env.ts` — Jest `setupFiles`. Re-pins `DATABASE_URL` inside every
+  worker process **before** `PrismaService` / `@nestjs/config` is constructed.
+  (`@nestjs/config` uses dotenv, which never overwrites an already-set env var,
+  so this override wins over `.env`.)
+
+One-time creation of the test database:
+
+```bash
+docker exec iaw-postgres createdb -U iaw iawnode_test
+```
+
 ## Project structure
 
 ```
