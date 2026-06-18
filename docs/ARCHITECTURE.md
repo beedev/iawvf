@@ -1,174 +1,316 @@
-# VDF Architecture
+# VDF Architecture (Node / NestJS, registry-first)
 
-This document describes the component structure, the runtime evaluation pipeline, the persistence model,
-the authoring loop, and how the framework's three core guarantees — **determinism, explainability,
-auditability** — are enforced by construction.
+The **IAW VDF** (Validation & Decision Framework) is a deterministic, config-driven
+clinical rule engine. This document describes the **Node / NestJS** implementation that
+supersedes the retired .NET stack. It reads bottom-up — from the **entity registry**,
+the source of truth for the domain vocabulary, up through validation, the pure decision
+engine, persistence, and the compile-time authoring loop — and explains how the three
+core guarantees (**determinism, explainability, auditability**) are enforced by
+construction.
 
-## Component diagram
+> Source of truth for everything below is `src/server/src` (NestJS) and
+> `src/server/prisma/schema.prisma` (Postgres via Prisma).
 
-```
-                          ┌───────────────────────────────────────────────┐
-                          │                 Host application               │
-                          │  (IAW.Vdf.Api, IAW.Vdf.Demo, or any .NET app)  │
-                          └───────────────────────────────────────────────┘
-                                   │ implements seams        │ calls
-            ┌──────────────────────┼─────────────────────────┼───────────────────────┐
-            ▼                      ▼                          ▼                       ▼
-   IFactProvider           IOutcomeHandler            IRuleEvaluator             IRuleInterpreter
-   (assemble facts)        (act on outcomes)          .EvaluateAsync()           (NL → rule, authoring)
-            │                      ▲                          │                       │
-            │                      │                          ▼                       │
-            │              ┌───────┴──────────────────────────────────────┐          │
-            │              │             IAW.Vdf.Core  (the engine)        │          │
-            │              │                                               │          │
-            └─ FactDocument┤  RuleSelector ─► VdfEngine ─► OperatorEval    │          │
-                           │       │              │            │           │          │
-                           │       │              ▼            ▼           │          │
-                           │       │          Reconciler   OperatorSemantics          │
-                           │       ▼              │                        │          │
-                           │  (phase/priority/    ▼                        │          │
-                           │   effective-date)  Outcomes + DecisionTrace   │          │
-                           └───────┬───────────────────────┬──────────────┘          │
-                                   │ IRuleRepository        │ IReferenceDataProvider  │
-                                   │ IClock                 │                         │
-            ┌──────────────────────┴────────────────────────┴─────────────┐  ┌───────┴──────────────┐
-            │            IAW.Vdf.Persistence (EF Core + Postgres)          │  │ IAW.Vdf.Authoring.Llm │
-            │  VdfDbContext: rules, rule_versions, reference_data,         │  │ OpenAiRuleInterpreter │
-            │  decision_traces (append-only)                              │  │ / StubRuleInterpreter │
-            └─────────────────────────────────────────────────────────────┘  └───────────────────────┘
-                                   ▲
-                                   │ schema-validate · lint · paraphrase · dry-run
-                           ┌───────┴───────────────────────────────────────┐
-                           │            IAW.Vdf.Authoring (compile-time)    │
-                           │  SchemaValidator · VocabularyLinter ·          │
-                           │  RoundTripParaphraser · DryRunPreviewer        │
-                           └────────────────────────────────────────────────┘
+---
 
-      Everything above depends on IAW.Vdf.Abstractions (contracts: RuleDefinition, FactDocument,
-      Outcome, ICondition, the six seams). Abstractions depends on nothing.
-```
-
-## The evaluation pipeline
-
-A single call to `IRuleEvaluator.EvaluateAsync(EvaluationRequest)` runs six conceptual stages. The
-request carries `{ Trigger, Facts, AsOf, RuleSet? }`; the result carries `{ Outcomes, Trace, FactsAfter }`.
+## 1. End-to-end pipeline
 
 ```
-  fact assembly ─► select ─► evaluate ─► dispatch ─► reconcile ─► trace
+                          ┌──────────────────────────────────────────────────┐
+                          │             ENTITY REGISTRY (N1)                  │
+                          │  source of truth — entities (nouns) + typed       │
+                          │  fields (properties), Active→Deprecated→Retired   │
+                          │  RegistryService · Postgres (registry_entity,     │
+                          │  registry_field) · Admin-only, audited mutations  │
+                          └───────────────┬───────────────────┬───────────────┘
+                                          │ projects           │ compiles
+              ┌───────────────────────────┘                   └───────────────────────────┐
+              ▼                                                                             ▼
+   ┌────────────────────────────────┐                              ┌─────────────────────────────────┐
+   │  VOCABULARY PROJECTION          │                              │  RUNTIME FACT VALIDATION (Ajv)    │
+   │  VocabularyProjectionService    │                              │  FactValidationService            │
+   │  object → property paths        │                              │  schema-compiler → JSON Schema    │
+   │  (e.g. specimen.fixationTime)   │                              │  (Ajv 2020), lenient, cached,     │
+   │  + operators + outcomes         │                              │  rebuilt lazily on registry change│
+   │  GET /api/registry/vocabulary   │                              │  POST /api/registry/validate      │
+   └───────────────┬─────────────────┘                              └─────────────────┬───────────────┘
+                   │ grounds                                                          │ validated facts
+                   ▼                                                                  ▼
+   ┌────────────────────────────────┐                              ┌─────────────────────────────────┐
+   │  AUTHORING LOOP (compile-time)  │                              │  DETERMINISTIC ENGINE             │
+   │  interpret (LLM, grounded) →    │   proposes versioned rules   │  VdfEngine  (src/server/src/vdf)  │
+   │  lint → paraphrase → dry-run →  │ ───────────────────────────► │  clone → select → evaluate →      │
+   │  govern (save/version/approve/  │                              │  derive (write-back) → dispatch   │
+   │  promote). LLM = PROPOSAL only. │                              │  Clock-injected ⇒ reproducible    │
+   └────────────────────────────────┘                              └─────────────────┬───────────────┘
+                                                                                      ▼
+                                                                    ┌─────────────────────────────────┐
+                                                                    │  OUTCOMES + DECISION TRACE        │
+                                                                    │  { outcomes, trace, factsAfter }  │
+                                                                    │  full per-rule explainability     │
+                                                                    └─────────────────────────────────┘
+
+   ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+   │  PERSISTENCE  —  Postgres via Prisma                                                            │
+   │  registry_entity · registry_field · rule · rule_version (versioned, effective-dated) ·         │
+   │  reference_data · decision_trace (append-only, correlation-id, no PHI)                          │
+   └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Fact assembly** — the host's `IFactProvider` builds a `FactDocument` for the trigger (or supplies it
-   directly). A `FactDocument` is a JSON object addressed by dotted paths (`order.client.nyStatus`,
-   `order.specimens[].type`).
+The same pipeline as a flow graph:
 
-2. **Select** — `RuleSelector` filters to rules that are `Enabled` and whose effective window contains
-   `AsOf` (`effectiveDate` inclusive, `expiryDate` exclusive), then orders them deterministically:
-   **phase** (`Derive` → `Validate` → `Route`) → **priority** (ascending) → **key** (ordinal). The order is
-   total and stable, so the run is reproducible.
-
-3. **Evaluate** — for each selected rule the engine:
-   - tests `appliesWhen` (the WHEN gate). If it does not hold, the rule is recorded as *not applied* and
-     skipped.
-   - evaluates `assert` (the DECISION). Conditions are evaluated through `OperatorSemantics`, which does
-     numeric-then-bool-then-ordinal coercion and consults `IReferenceDataProvider` for reference-backed
-     operators. AND/OR are **non-short-circuit** — every leaf is evaluated so the trace is complete.
-   - selects `onSuccess` or, on failure, attempts `recover` and then falls back to `onFailure`.
-
-4. **Dispatch** — derivation outcomes (`SetValue`/`ApplyDefault`/`CalculateValue`) are applied to the
-   working fact document immediately, so later phases see stamped values (this is why `Derive` runs
-   first). Registered `IOutcomeHandler`s are invoked for outcomes they `CanHandle` — the **only**
-   side-effect boundary; the engine itself never mutates the outside world.
-
-5. **Reconcile** — the `Reconciler` resolves competing outcomes (e.g. a `CompleteHold` dominates a
-   `Warning` on the same scope) into the final outcome set, deterministically.
-
-6. **Trace** — every evaluated rule contributes a `DecisionTrace`: `RuleKey`, `Version`, `Applied`,
-   `AssertResult`, the per-leaf `Conditions` (subject, operator, result), the `Produced` outcome, and
-   `EvaluatedAt`. `FactsAfter` exposes the post-derivation fact document.
-
-## Persistence model — versioned, effective-dated rules
-
-`VdfDbContext` (Npgsql/Postgres, snake_case columns, `timestamptz`, JSONB bodies) models rules as a stable
-identity row with an append-only history of versions.
-
-```
-  rules (one row per rule key)                rule_versions (one+ per rule, immutable bodies)
-  ┌───────────────────────────┐    1     N    ┌──────────────────────────────────────────────┐
-  │ id            uuid  (PK)   │◄─────────────►│ id               uuid (PK)                    │
-  │ rule_key      text  (UQ)   │               │ rule_id          uuid (FK → rules, cascade)   │
-  │ rule_set      text         │               │ version          int  (UQ with rule_id)       │
-  │ name          text         │               │ effective_date   timestamptz (inclusive)      │
-  │ description   text         │               │ expiry_date      timestamptz? (exclusive)     │
-  │ priority      int          │               │ definition_json  jsonb  (full RuleDefinition) │
-  │ phase         text         │               │ author_nl        text   (NL provenance)       │
-  │ enabled       bool         │               │ interpreter_version text                      │
-  │ created_at    timestamptz  │               │ authored_by      text   (default 'system')    │
-  └───────────────────────────┘               │ approved_by      text?                        │
-                                               │ approved_at      timestamptz?                 │
-  reference_data  (key → jsonb)                │ is_active        bool                         │
-  decision_traces (append-only audit)          └──────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  REG[Entity Registry<br/>source of truth] -->|project active fields| VOC[Vocabulary Projection<br/>object → property tree]
+  REG -->|compile entity schemas| FV[Fact Validation<br/>Ajv 2020, lenient + cached]
+  VOC -->|grounds| AUTH[Authoring Loop<br/>interpret → lint → paraphrase → dry-run → govern]
+  AUTH -->|save / version / approve / promote| RULES[(rule / rule_version<br/>versioned, effective-dated)]
+  FV -->|validated fact document| ENG[Deterministic Engine<br/>VdfEngine]
+  RULES -->|getActiveRulesAsync at as-of| ENG
+  REF[(reference_data)] -->|thresholds, compat tables| ENG
+  ENG --> OUT[Outcomes + DecisionTrace<br/>factsAfter]
+  OUT -->|append-only, correlation id| TR[(decision_trace)]
+  subgraph Persistence [Postgres via Prisma]
+    RULES
+    REF
+    TR
+    REG
+  end
 ```
 
-- **Versioning** — `version` increments per `rule_key` (starts at 1). New versions are *appended*; bodies
-  are never edited in place. When a new version becomes effective (`effective_date <= now`), prior active
-  versions are flipped to `is_active = false`, so **exactly one version is active per rule** at any
-  instant. The composite index `ix_rule_versions_is_active_effective_date` backs the hot "active rules as
-  of now" query.
-- **Effective dating** — `[effective_date, expiry_date)` is the validity window. `RuleSelector` (Core) and
-  `GetActiveRulesAsync` (Persistence) apply the same windowing against `AsOf`, so a future-dated rule does
-  not affect today's evaluation — and yesterday's evaluation can be replayed exactly by passing the
-  historical `AsOf`.
-- **Provenance** — each version records the natural-language source (`author_nl`), the interpreter version
-  that produced it, who authored it, and who approved it and when.
+---
 
-## The authoring loop
+## 2. Entity registry — the source of truth (bottom-up)
 
-Authoring turns English into a governed rule version. It is entirely compile-time; the LLM never touches
-the runtime evaluation path.
+The registry models the domain itself. It is the **bottom layer** on which everything
+else stands: there is no separate, standalone vocabulary list — the legal subjects the
+engine and authoring tooling ground on are exactly the **Active fields on Active
+entities**.
 
-```
-   interpret ─► lint ─► paraphrase ─► dry-run ─► govern
-```
+**Shape** (`registry_entity`, `registry_field` in `schema.prisma`):
 
-1. **Interpret** — `IRuleInterpreter.InterpretAsync(nl, vocabulary)` (OpenAI-backed) returns an
-   `InterpretationResult`: a candidate `RuleDefinition`, a `Confidence`, the `UnmappedPhrases` it could not
-   express in the controlled vocabulary, and `Gaps` (missing concerns the author should resolve).
-2. **Lint** — `VocabularyLinter.Lint(rule)` validates subject paths and reference keys against the
-   `VocabularyCatalog`/reference data and checks outcome parameter completeness, emitting coded findings
-   (e.g. `LINT001` unknown subject, `LINT003` unknown reference). Errors block governance.
-3. **Paraphrase** — `RoundTripParaphraser.Paraphrase(rule)` renders the rule back to deterministic English
-   for human confirmation ("does this say what you meant?").
-4. **Dry-run** — `DryRunPreviewer.PreviewAsync(candidate, fixtures)` evaluates the candidate against the
-   committed fixture corpus in a no-side-effects sandbox (a fresh engine over an in-memory repository with a
-   collecting handler), returning which fixtures the rule applied to and what it produced.
-5. **Govern** — `RuleGovernanceService` persists the version with provenance, supports approval
-   (`approved_by`/`approved_at`), effective-dating, and enable/disable. Mutations are role-gated
-   (Author / Reviewer / Admin).
+- **Entity** — a transaction object (a noun / class). `key` is stored canonical
+  lower-case and uniquely indexed, so `"Kit"` and `"kit"` can never coexist; this
+  replaces the legacy free-text "object = first path segment" approach that permitted
+  duplicate, ambiguous vocabulary. Carries `label`, `description`, `status`, and
+  provenance (`createdBy`, `approvedBy`/`approvedAt`).
+- **Field** — a typed property on an entity. `name` is the path **relative** to the
+  entity (e.g. `fixationTime`, `client.nyStatus`, or `specimens[]` for a collection),
+  unique within its owning entity. Each field declares a `dataType`
+  (`String | Number | Date | Boolean | Collection`), an optional `required` flag, and an
+  optional **closed set of `allowedValues`** (an enum, e.g. `specimen.type`,
+  `patient.gender`); empty `allowedValues` means unconstrained.
 
-## How the guarantees are enforced
+The canonical **subject path** consumed by rules and the engine is
+`${entity.key}.${field.name}` (e.g. `specimen.fixationTime`).
 
-### Determinism
-- **Time is the only ambient input, and it is injected.** The engine reads "now" exclusively through
-  `IClock`; `EvaluationRequest.AsOf` fixes the instant for selection and evaluation. Tests use
-  `FixedClock`. There is no `DateTime.Now`, randomness, or culture-sensitive parsing in the evaluation
-  path (operator comparisons are ordinal/numeric).
-- **Total, stable ordering.** `RuleSelector` orders by phase → priority → ordinal key, so the rule
-  sequence — and therefore the derivation chain — is identical on every run.
-- **No hidden state.** The engine is a pure function of `(rules, facts, as-of)`. Side effects are confined
-  to host `IOutcomeHandler`s, invoked after the decision is made. Re-running a request yields byte-identical
-  outcomes and trace (proven by `DeterminismTests`).
+**Canonical seeded entities** (`registry.seed-data.ts`): `order`, `test`, `specimen`,
+`patient`, `document`, `incident`, `medicalReview`, `priorTimepoint`.
 
-### Explainability
-- **Every evaluated rule is traced.** A `DecisionTrace` records whether the rule applied, the assertion
-  result, and — because AND/OR do **not** short-circuit — *every* leaf condition with its subject,
-  operator, and boolean result. You can always answer "why did this order get held?" from the trace alone.
-- **Outcomes carry intent.** Each `Outcome` has a `Type`, a derived `Group`, a `Scope`
-  (order/test/specimen), a human `Reason`, and typed `Parameters` — enough to render the decision without
-  re-running the engine.
+**Lifecycle** — every entity and field flows `Active → Deprecated → Retired`:
 
-### Auditability
-- **Rules are versioned and provenanced**, not edited in place. The active version, its NL source,
-  interpreter version, author, approver, and effective window are all persisted — so any historical
-  decision can be reconstructed (replay with the same `AsOf` against the version that was active then).
-- **Decision traces are append-only.** The trace store records what was decided, by which rule version, at
-  which instant — a permanent audit log. Audit logging records counts/keys only, never PHI.
+- **Deprecated** artifacts stay *resolvable* so live rules don't break, but drop out of
+  projection and runtime validation.
+- **Retired** is a hard delete, permitted **only** when the artifact is already
+  Deprecated **and** unreferenced by any rule (`retireEntity` / `retireField` enforce
+  both gates).
+
+**Governance** — all registry mutations (`createEntity`, `addField`, `deprecate*`,
+`retire*`) are **Admin-only** and audited; the read endpoints (`GET /entities`,
+`GET /vocabulary`, `POST /validate`) are open to any authenticated caller
+(`RegistryController`). Mutations fire a **change hook** (`registerChangeListener`) that
+downstream consumers (notably fact validation) subscribe to.
+
+---
+
+## 3. Vocabulary projection
+
+`VocabularyProjectionService` projects the registry into the **controlled vocabulary**
+that grounds both authoring and the LLM interpreter. It loads Active fields on Active
+entities and emits:
+
+- **`projectPaths()`** — the flat, sorted list of legal subject paths. This *is* the
+  engine grounding set (identical to `RegistryService.getSubjectPaths`).
+- **`project()`** — `GroundingVocabulary`: each path plus its declared `dataType` and
+  `allowedValues` (the type-aware grounding the linter consumes).
+- **`projectTree()`** — the authoring **OBJECT → PROPERTY tree** the UI scope-picker
+  consumes: objects (first path segment, e.g. `order`) with humanized labels
+  (`medicalReview → "Medical Review"`), each carrying its sorted properties (e.g.
+  `specimen.fixationTime`), **plus** the engine's closed `operators` and `outcomes`
+  name lists. Surfaced at `GET /api/registry/vocabulary`.
+- **`resolveScope(objects?, properties?)`** — narrows the grounding surface for a scoped
+  interpret request. Property scope (exact paths) takes precedence over object scope;
+  every requested object/property must resolve, so the UI can never silently scope the
+  interpreter to nothing.
+
+Because the projection reads the live registry, **adding a field makes its path appear
+immediately** and **deprecating an entity/field removes it** — there is exactly one
+vocabulary, and it is the registry.
+
+---
+
+## 4. Runtime fact validation (Ajv)
+
+At runtime, a **fact document** — a JSON object keyed by entity (e.g.
+`{ "specimen": { … }, "patient": { … } }`) — is validated against the registry by
+`FactValidationService` before it reaches the engine.
+
+- For each Active entity, `compileEntitySchema` (the **schema-compiler**) builds a
+  **JSON Schema** from its Active fields; the matching sub-document is validated with
+  **Ajv 2020** (`allErrors: true`, formats enabled).
+- **Lenient by design**:
+  - **Unknown top-level keys are skipped** — the registry does not own them.
+  - Within a **known** entity, type mismatches, bad enum (`allowedValues`) values, and
+    **missing required** fields are reported; **extra unmodelled fields are tolerated**.
+- Compiled validators are **cached**; the service subscribes to the registry change hook
+  in `onModuleInit` and marks the cache **stale**, so it is **rebuilt lazily** on the
+  first validation after any registry mutation.
+- Errors are **entity- and path-scoped and message-only** (`{ entity, path, message }`),
+  with paths rooted at the entity key (e.g. `specimen.fixationTime`) — **no PHI**, never
+  the offending value.
+
+Exposed at `POST /api/registry/validate`.
+
+---
+
+## 5. The deterministic engine
+
+The pure `VdfEngine` (`src/server/src/vdf`) carries **no NestJS dependency** — it is an
+embeddable, side-effect-free evaluator. A single `evaluate(request)` call
+(`{ facts, asOf, ruleSet? }`) runs:
+
+1. **Clone facts** — the working document is a deep copy; **the caller's facts are never
+   mutated**. All derivations are written into the clone and returned as `factsAfter`.
+2. **Select** — `selectRules` filters to applicable rules (optionally partitioned by
+   `ruleSet`) whose effective window contains `asOf`, then orders them **deterministically
+   and totally**: **phase** (`Derive → Validate → Route`) → **priority** → **key**.
+3. **Evaluate each rule**:
+   - **WHEN** — the `appliesWhen` gate. Absent ⇒ always applies; if it doesn't hold, the
+     rule is recorded *not applied* and skipped.
+   - **DECISION** — `assert`. An absent assert falls through to failure (derivation rules
+     rely on this). Conditions are a recursive `All / Any / Not` tree over leaf
+     conditions (subject + operator + literal/reference comparand + quantifier).
+   - On **assert-true** ⇒ apply `onSuccess`; if it is a **Derivation** outcome, its
+     target value is **written back** into the working facts.
+   - On **assert-false** ⇒ attempt `recover` (e.g. `apply-default`); if recovery resolves,
+     the failure is **suppressed**; otherwise produce `onFailure` (which may itself be a
+     derivation that writes back).
+4. **Derivations write back** into the working facts so **later-phase rules observe
+   them** — this is rule chaining, and the reason `Derive` runs first.
+5. **Dispatch** — produced outcomes are handed to any registered `OutcomeHandler`s. This
+   is the **only** side-effect boundary; the engine itself never touches the outside
+   world.
+6. **Return** `{ outcomes, trace, factsAfter }`.
+
+**Time enters only via `Clock`.** Tests inject a `FixedClock`, so the same request
+evaluated twice produces identical outcomes and (modulo the fixed clock) identical
+traces — **fully reproducible**.
+
+---
+
+## 6. Outcomes and decision trace
+
+**Outcomes** belong to semantic groups (`groupFor`):
+
+| Group | Outcome types |
+|-------|---------------|
+| **None** | `Continue`, `Suppressed` |
+| **Validation** | `CompleteHold`, `PartialHold`, `Warning`, `ComplianceAlert` |
+| **Workflow** | `RouteToReview`, `RouteToQueue`, `Escalate` |
+| **Derivation** | `SetValue`, `ApplyDefault`, `CalculateValue` |
+| **Entity** | `CreatePlaceholder`, `CreateIncident`, `CreateTask` |
+| **Control** | `PreventAction`, `AllowAction` |
+
+Every **evaluated** rule emits a `DecisionTrace` — the explainability artifact:
+
+- `ruleKey`, `version`, `phase`, `applied`, `assertResult`
+- **per-leaf `conditions`**: `subject`, `operator`, `quantifier`, `resolvedLeft`,
+  `resolvedRight`, `result` (AND/OR are evaluated **without short-circuit** so the trace
+  is complete)
+- `recoveryAttempted`, `recoveryResolved`
+- the `produced` outcome, `factsRead`, and the `evaluatedAt` clock instant
+
+`factsAfter` exposes the post-derivation fact document, completing the audit picture.
+
+---
+
+## 7. Persistence
+
+Postgres via **Prisma** (`schema.prisma`). Snake_case columns, `timestamptz`, JSONB
+bodies.
+
+**Versioned, effective-dated, governed rules**:
+
+- **`rule`** — the stable identity row, one per rule `ruleKey` (e.g. `"PM17"`); mutable
+  metadata only (`name`, `ruleSet`, `priority`, `phase`, `enabled`).
+- **`rule_version`** — an **append-only, immutable** body. The entire `RuleDefinition`
+  (condition tree + outcomes + recovery) is serialized as **JSONB** in `definitionJson`
+  (no relational decomposition). Carries effective-dating (`effectiveDate` inclusive,
+  `expiryDate` exclusive), an `isActive` "currently live" flag, and **provenance**
+  (`authoredBy`, `authorNl`, `interpreterVersion`, `approvedBy`, `approvedAt`).
+
+`RuleRepository` resolves the active version **at an as-of instant**
+(`getActiveRulesAsync(asOf, ruleSet?)` windows on `effectiveDate ≤ asOf < expiryDate`),
+and supports `saveAsync` (add-version with effective dates), `approve` (records the
+authenticated approver + timestamp), and `setEnabled` (promote / disable).
+
+**Reference data** (`reference_data`) — policy thresholds and compatibility tables are
+DB-backed too, keyed by `(source, key)` with a JSONB value, resolved by the engine's
+reference provider.
+
+**Decision traces** (`decision_trace`) — persisted **append-only** under a
+**correlation id** by `DecisionTraceStore`. This is the audit ledger: it stores the
+rule/condition/outcome metadata only — **no PHI and no facts are logged**.
+
+**Engine-over-DB parity** — `RuleEvaluationService` loads the active rules and reference
+data for the requested instant and runs the same `VdfEngine`, proving **identical
+outcomes** whether the engine is grounded on the on-disk corpus or the Postgres-backed
+repository.
+
+---
+
+## 8. The authoring loop (compile-time)
+
+Rules are authored **offline**, never at runtime. The loop turns natural language into a
+governed, versioned rule, with a deterministic gate as the source of truth for validity:
+
+1. **interpret** — natural language → a **candidate** `RuleDefinition` via the LLM
+   (`RuleInterpreterService`), grounded on the live registry vocabulary (optionally
+   narrowed by `resolveScope`). When the live interpreter is unavailable (disabled / no
+   key / network error) it **transparently falls back to a deterministic offline stub**;
+   it never leaks provider detail. `POST /api/authoring/interpret` (Author).
+2. **lint** — the **registry-grounded `VocabularyLinter`**: every subject, operator,
+   reference, and value must resolve to the controlled vocabulary (type-aware, including
+   `allowedValues`). `POST /api/authoring/lint` (Author).
+3. **paraphrase** — a **deterministic** English rendering of the candidate for
+   round-trip confirmation. `POST /api/authoring/paraphrase` (Author).
+4. **dry-run** — evaluate the candidate against the **repo fixtures corpus** with **no
+   side effects**, previewing which fixtures it would fire on.
+   `POST /api/authoring/dry-run` (Author).
+5. **govern** — **save → version → approve → promote**: `POST /api/rules` and
+   `POST /api/rules/:key/versions` (Author) append immutable versions;
+   `POST /api/rules/:key/approve` (Reviewer) records the authenticated approver;
+   `POST /api/rules/:key/promote` and `/disable` (Admin) flip the live flag.
+
+**The LLM output is always a PROPOSAL.** The deterministic gate
+(`RuleInterpretationGate`) is the source of truth: regardless of what the model claimed,
+a candidate is returned only if it (a) passes the rule JSON schema, (b) deserializes into
+a `RuleDefinition`, and (c) **lints clean with zero Error findings** against the live
+registry. Any Error becomes a *propose-new-term* gap and the candidate is **suppressed**
+(`candidate = null`, confidence `0`); warnings keep the candidate but dampen confidence.
+**The LLM is never in the runtime decision path.**
+
+---
+
+## 9. Cross-cutting properties — by construction
+
+- **Determinism** — facts are cloned (input never mutated); rule selection is total and
+  stable (phase → priority → key); time enters only via an injected `Clock`. The same
+  request always yields the same outcomes, and the same traces under a `FixedClock`. The
+  engine-over-DB path is verified to match the on-disk corpus.
+- **Explainability** — every evaluated rule emits a full `DecisionTrace` (per-leaf
+  resolved values and results, recovery attempts, produced outcome), plus `factsAfter`.
+- **Auditability** — rule provenance (`authoredBy`, `authorNl`, `interpreterVersion`,
+  `approvedBy`, `approvedAt`) rides on each immutable version; decision traces are
+  append-only under a correlation id; registry mutations are Admin-only and audited; logs
+  are redacted and structured. **No PHI or facts are ever persisted in traces or logs.**

@@ -1,197 +1,466 @@
 # VDF Integration Guide
 
-How a host .NET application embeds the IAW Validation & Decision Framework: which projects to reference,
-the DI extensions, the seams you implement, and a minimal end-to-end example.
+How a host application integrates with the IAW Validation & Decision Framework (VDF) running as a
+**Node/NestJS HTTP service**: how to authenticate, how to assemble the facts you POST, how to act on the
+outcomes that come back, and the supporting endpoints for registry and rule governance.
 
-## What "embedding" means
+> **The .NET / library-embedding model is retired.** There is no `IAW.Vdf.*` project to reference, no DI
+> extension to call, no in-process `IRuleEvaluator`, `IFactProvider`, or `IOutcomeHandler` to implement. The
+> VDF is now consumed over REST. The integration boundary is the wire, not your DI container.
 
-The VDF is a library, not a service you call over the wire (though `IAW.Vdf.Api` exposes it as one). A host
-references the framework projects, registers them in its DI container, implements the seams that connect the
-engine to its own domain, and then calls `IRuleEvaluator.EvaluateAsync(...)`. The engine returns *decisions*
-(outcomes + trace); the host's `IOutcomeHandler`s carry them out.
+## What "integrating" means now
 
-## Projects to reference
+The VDF is an **HTTP service that sits behind your host application.** Your host does three things:
 
-| You want… | Reference |
+1. **Authenticate** once and carry a bearer token.
+2. **Assemble facts** — gather your domain data and shape it into an entity-keyed JSON document.
+3. **POST to `/api/evaluate`** and **act on the outcomes** it returns.
+
+The division of labor is unchanged from the old model, only the seam moved:
+
+> **The framework DECIDES. The host ACTS.**
+
+The service returns *outcomes* (advisory decisions) plus a *trace* (explainability) plus the *post-run
+facts*. It never places a hold, routes an order, or creates a record on your behalf — your own code does
+that in response to the outcomes.
+
+Two host-side responsibilities carry over from the retired `IFactProvider` / `IOutcomeHandler` seams, but
+they are now plain application code rather than interfaces you register:
+
+| Old in-process seam | New host responsibility |
 |---|---|
-| The contracts only (to implement seams, share types) | `IAW.Vdf.Abstractions` |
-| The engine + in-memory defaults | `IAW.Vdf.Core` (transitively brings Abstractions) |
-| Postgres-backed, versioned, effective-dated rule storage | `IAW.Vdf.Persistence` |
-| Compile-time authoring tooling (lint/paraphrase/dry-run) | `IAW.Vdf.Authoring` |
-| Natural-language authoring (OpenAI) | `IAW.Vdf.Authoring.Llm` |
+| `IFactProvider.AssembleAsync` | A **fact assembler**: your code builds the entity-keyed JSON and POSTs it. |
+| `IOutcomeHandler.HandleAsync` | **Outcome handling**: your code reads the returned outcomes and performs the real-world effect. |
 
-A minimal runtime host needs only **Core** (and **Persistence** if rules live in Postgres). Authoring
-projects are needed only where rules are *created*, not where they are *evaluated*.
+**Natural-language authoring is compile-time only.** Rules are authored (and optionally drafted from natural
+language) ahead of time and stored in Postgres. The LLM is **never** in the runtime path — `/api/evaluate`
+runs a deterministic engine over the stored, approved rules. A given `(rules, facts)` pair always yields the
+same outcomes and trace.
 
-## DI extensions
+Base URL for local development: `http://localhost:4000`.
 
-Register in this order — later calls override earlier defaults (Core uses `TryAdd`, so its in-memory
-providers yield to Persistence's EF-backed ones).
+---
 
-```csharp
-using IAW.Vdf.Core.DependencyInjection;
-using IAW.Vdf.Persistence.DependencyInjection;
-using IAW.Vdf.Authoring.DependencyInjection;
-using IAW.Vdf.Authoring.Llm.DependencyInjection;
+## 1. Authentication
 
-services.AddVdfCore();                          // engine, selector, operators, reconciler,
-                                                // default VocabularyCatalog, in-memory providers
-services.AddVdfPersistence(connectionString);   // VdfDbContext + EF IRuleRepository / IReferenceDataProvider
-services.AddVdfAuthoring();                      // SchemaValidator, VocabularyLinter,
-                                                // RoundTripParaphraser, DryRunPreviewer
-services.AddVdfLlmInterpreter();                // OpenAiRuleInterpreter as IRuleInterpreter
-//   …or, for tests / offline:
-// services.AddVdfStubInterpreter();            // deterministic StubRuleInterpreter
+Obtain a JWT bearer token, then send it on every other call.
+
+### `POST /api/auth/login`
+
+Request body:
+
+```json
+{ "username": "author", "password": "author-pw" }
 ```
 
-| Extension | Signature | Registers |
-|---|---|---|
-| `AddVdfCore` | `(this IServiceCollection)` | `IRuleEvaluator`→`VdfEngine`, `RuleSelector`, `Reconciler`, operators, the default `VocabularyCatalog`, and host-overridable defaults (`IClock`→`SystemClock`, `IRuleRepository`/`IReferenceDataProvider`→in-memory, `IFactProvider`→pass-through). |
-| `AddVdfPersistence` | `(this IServiceCollection, string connectionString)` | `VdfDbContext` (Npgsql), EF `IRuleRepository`/`IReferenceDataProvider`, the append-only decision-trace store, and the corpus importer — all scoped. |
-| `AddVdfAuthoring` | `(this IServiceCollection)` | The four authoring tools as singletons. |
-| `AddVdfLlmInterpreter` | `(this IServiceCollection, Action<OpenAiOptions>? configure = null)` | The live OpenAI `IRuleInterpreter` + a named `HttpClient`; binds `OpenAiOptions` (env vars override). |
-| `AddVdfStubInterpreter` | `(this IServiceCollection)` | An offline deterministic `IRuleInterpreter` (no network). |
+Response (`200 OK`):
 
-> **Lifetime note.** The engine and the reference-data-dependent authoring services are registered as
-> singletons by Core/Authoring, but the EF repositories from Persistence are scoped (they own a
-> request-scoped `DbContext`). A host that wires Persistence behind the engine must re-register the engine
-> (and linter/previewer) as **scoped** to avoid a captive dependency — see `IAW.Vdf.Api/Program.cs` for the
-> exact pattern (it removes the singleton descriptors and re-adds them scoped). For a non-DI host that
-> constructs `VdfEngine` directly (below), this does not arise.
-
-## Implementing the seams
-
-You typically implement two seams; the rest have sensible defaults.
-
-### `IFactProvider` — assemble facts from your domain
-
-The engine evaluates a `FactDocument` (a JSON object addressed by dotted paths). Your provider turns a
-trigger into that document — usually by loading your aggregate and projecting the fields the rules
-reference.
-
-```csharp
-using IAW.Vdf.Abstractions.Facts;
-using IAW.Vdf.Abstractions.Triggers;
-
-public sealed class OrderFactProvider(IOrderStore orders) : IFactProvider
+```json
 {
-    public async Task<FactDocument> AssembleAsync(Trigger trigger, CancellationToken ct = default)
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "username": "author",
+  "roles": ["Author"]
+}
+```
+
+curl:
+
+```bash
+curl -s -X POST http://localhost:4000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"author","password":"author-pw"}'
+```
+
+Send the token on every subsequent request:
+
+```
+Authorization: Bearer <accessToken>
+```
+
+Invalid credentials return `401`. `expiresIn` is the token lifetime in seconds; re-authenticate before it
+elapses.
+
+### Development credentials
+
+These accounts exist **for local development only.** In production the service authenticates against a real
+identity provider (IdP) — the username/password flow above is replaced, but the bearer-token contract and
+roles are the same.
+
+| Username   | Password      | Role     | Can do |
+|------------|---------------|----------|--------|
+| `author`   | `author-pw`   | Author   | Create rules / add rule versions |
+| `reviewer` | `reviewer-pw` | Reviewer | Approve rules |
+| `admin`    | `admin-pw`    | Admin    | Promote / disable rules, edit the registry |
+| `lead`     | `lead-pw`     | Lead     | Elevated read / oversight |
+
+> **Do not ship these credentials.** They are seeded for the dev environment and have no meaning against a
+> production IdP.
+
+---
+
+## 2. The runtime path — `POST /api/evaluate`
+
+This is the call your host makes on its hot path. It is open to **any authenticated principal** (no special
+role required). The service validates the facts against the registry, runs the active rule set, persists an
+audit trace, and returns the decision.
+
+### Request — `EvaluateRequestDto`
+
+| Field         | Type     | Required | Meaning |
+|---------------|----------|----------|---------|
+| `factsJson`   | object   | yes      | The entity-keyed fact document to evaluate (see [§4](#4-the-fact-assembler-host-responsibility)). |
+| `ruleSet`     | string   | no       | Optional rule-set filter. Omit to evaluate against **all** active rules. |
+| `triggerType` | enum     | no       | `OrderEvent` \| `TimeSchedule` \| `DecisionReturned`. Defaults to `OrderEvent`. |
+| `strict`      | boolean  | no       | When `true`, a registry-validation failure **blocks** evaluation with `422`. Default `false`: outcomes are returned **alongside** a validation block so the UI can surface fact/registry mismatches without losing the decision. |
+
+### Response — `EvaluateResponseDto`
+
+```jsonc
+{
+  "outcomes": [
     {
-        var order = await orders.LoadAsync(trigger.EventName, ct);   // your domain
-        return FactDocument.Parse($$"""
+      "type": "ComplianceAlert",   // the specific decision
+      "group": "Validation",        // Validation | Workflow | Derivation | Entity | Control
+      "scope": "order",             // which entity the outcome is about (nullable)
+      "reason": "…human-readable…", // why (nullable)
+      "severity": "Error",          // nullable
+      "parameters": { }             // outcome-specific structured data
+    }
+  ],
+  "trace": [
+    {
+      "ruleKey": "…",
+      "version": 3,
+      "phase": "Validation",
+      "applied": true,
+      "assertResult": false,
+      "conditions": [
         {
-          "order": {
-            "client":        { "nyStatus": "{{order.Client.NyStatus}}" },
-            "performingLab":  "{{order.PerformingLab}}",
-            "type":          "{{order.Type}}",
-            "specimens":     {{order.SpecimensAsJsonArray}}
-          },
-          "patient": { "age": {{order.Patient.Age}}, "gender": "{{order.Patient.Gender}}" }
+          "subject": "order.performingLab",
+          "operator": "in",
+          "resolvedLeft": "Lab-CA-1",
+          "resolvedRight": "[NY-validated labs]",
+          "result": false
         }
-        """);
+      ],
+      "produced": { "type": "ComplianceAlert", "group": "Validation", "...": "..." }
     }
+  ],
+  "factsAfter": { },          // the fact document after derivation write-backs (object | null)
+  "validation": {
+    "valid": true,
+    "errors": [ { "entity": "specimen", "path": "specimen.fixationTime", "message": "…" } ]
+  }
 }
 ```
 
-Register it so it overrides the pass-through default: `services.AddScoped<IFactProvider, OrderFactProvider>();`
+- **`outcomes`** — the advisory decisions your host acts on, grouped by `group`.
+- **`trace`** — one entry per rule the engine considered, with its leaf-condition results. This is the
+  explainability / audit record; surface it in review UIs or log it for compliance.
+- **`factsAfter`** — the fact document **after** derivation rules wrote their values back. Read derived
+  values from here (see [§5](#5-outcome-handling-host-responsibility)).
+- **`validation`** — the registry-validation block: `valid` plus a list of entity-/path-scoped errors
+  (no PHI). Present even in non-strict mode.
 
-### `IOutcomeHandler` — act on outcomes
+### Full example
 
-This is the side-effect boundary. Implement `CanHandle` to claim outcome types, and `HandleAsync` to
-perform the real-world effect. Register one handler per concern; the engine dispatches each outcome to the
-handlers that claim it.
+Authenticate, then evaluate a clinical fact document:
 
-```csharp
-using IAW.Vdf.Abstractions.Outcomes;
+```bash
+TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"author","password":"author-pw"}' | jq -r .accessToken)
 
-public sealed class HoldOutcomeHandler(IOrderWorkflow workflow) : IOutcomeHandler
+curl -s -X POST http://localhost:4000/api/evaluate \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "triggerType": "OrderEvent",
+    "factsJson": {
+      "test":     { "code": "FISH-T-001", "name": "FISH HER2" },
+      "specimen": { "type": "FFPE", "fixationTime": 24, "bodySite": null },
+      "order":    {
+        "client": { "nyStatus": "NYRegulated" },
+        "performingLab": "Lab-CA-1",
+        "type": "Clinical"
+      },
+      "document": { "requisitionComplete": true }
+    }
+  }'
+```
+
+Sample response:
+
+```json
 {
-    public bool CanHandle(OutcomeType type) =>
-        type is OutcomeType.CompleteHold or OutcomeType.PartialHold;
-
-    public async Task HandleAsync(Outcome outcome, EvaluationContext ctx, CancellationToken ct = default)
+  "outcomes": [
     {
-        // outcome.Scope ("order"/"test"/"specimen"), outcome.Reason, outcome.Parameters are all available.
-        await workflow.PlaceHoldAsync(scope: outcome.Scope!, reason: outcome.Reason, ct);
+      "type": "ComplianceAlert",
+      "group": "Validation",
+      "scope": "order",
+      "reason": "Performing lab is not on the NY-validated list for an NY-regulated client.",
+      "severity": "Error",
+      "parameters": { "client.nyStatus": "NYRegulated", "performingLab": "Lab-CA-1" }
+    },
+    {
+      "type": "SetValue",
+      "group": "Derivation",
+      "scope": "specimen",
+      "reason": "Body site derived from test catalog.",
+      "severity": null,
+      "parameters": { "path": "specimen.bodySite", "value": "Breast" }
     }
+  ],
+  "trace": [
+    {
+      "ruleKey": "ny-performing-lab-validation",
+      "version": 3,
+      "phase": "Validation",
+      "applied": true,
+      "assertResult": false,
+      "conditions": [
+        { "subject": "order.client.nyStatus", "operator": "equals",
+          "resolvedLeft": "NYRegulated", "resolvedRight": "NYRegulated", "result": true },
+        { "subject": "order.performingLab", "operator": "in",
+          "resolvedLeft": "Lab-CA-1", "resolvedRight": "[NY-validated labs]", "result": false }
+      ],
+      "produced": { "type": "ComplianceAlert", "group": "Validation", "scope": "order",
+                    "reason": "Performing lab is not on the NY-validated list for an NY-regulated client.",
+                    "severity": "Error", "parameters": {} }
+    }
+  ],
+  "factsAfter": {
+    "test":     { "code": "FISH-T-001", "name": "FISH HER2" },
+    "specimen": { "type": "FFPE", "fixationTime": 24, "bodySite": "Breast" },
+    "order":    { "client": { "nyStatus": "NYRegulated" }, "performingLab": "Lab-CA-1", "type": "Clinical" },
+    "document": { "requisitionComplete": true }
+  },
+  "validation": { "valid": true, "errors": [] }
 }
 ```
 
-Register: `services.AddScoped<IOutcomeHandler, HoldOutcomeHandler>();` (add as many as you have concerns —
-routing, placeholder creation, etc.). Derivation outcomes (`SetValue` and friends) are applied to the fact
-document by the engine itself and need no handler.
+### Reading outcomes by group, and acting
 
-The other seams — `IRuleRepository` (use Persistence), `IReferenceDataProvider` (use Persistence or a JSON
-file), `IClock` (default `SystemClock`; inject `FixedClock` in tests), `IRuleInterpreter` (authoring only) —
-are usually satisfied by the framework defaults.
+Your host iterates `outcomes` and routes by `group`. Each group maps to a class of host action:
 
-## Minimal end-to-end example
+| `group`      | What it means | Typical host action |
+|--------------|---------------|---------------------|
+| `Validation` | A correctness / compliance assertion failed | Surface the error, **place a hold**, block release. |
+| `Workflow`   | A process step is indicated | **Route to a queue**, request a sign-off, escalate. |
+| `Derivation` | A value was computed and written back | Read it from `factsAfter`; no separate action needed. |
+| `Entity`     | An entity-level decision (create/flag) | **Create a placeholder**, flag the entity. |
+| `Control`    | Engine flow control (e.g. continue/suppress) | Usually informational; rarely needs host action. |
 
-Constructing the engine directly (no DI) — the pattern `IAW.Vdf.Demo` uses. Swap `JsonRuleRepository` /
-`JsonReferenceDataProvider` for the EF-backed ones (via DI) in a Postgres-backed host.
+A minimal host dispatch loop:
 
-```csharp
-using IAW.Vdf.Abstractions.Evaluation;
-using IAW.Vdf.Abstractions.Facts;
-using IAW.Vdf.Abstractions.Outcomes;
-using IAW.Vdf.Abstractions.Triggers;
-using IAW.Vdf.Core.Engine;
-using IAW.Vdf.Core.ReferenceData;
-using IAW.Vdf.Core.Repositories;
-using IAW.Vdf.Core.Time;
-
-// 1. Wire the engine. In production the repository/reference-data come from Postgres via DI;
-//    here we load the committed corpus from disk for a self-contained example.
-var repo   = JsonRuleRepository.FromDirectory("rules");
-var refs   = JsonReferenceDataProvider.FromFile("rules/reference-data.json");
-var clock  = new FixedClock(new DateTimeOffset(2026, 6, 17, 12, 0, 0, TimeSpan.Zero));
-var engine = new VdfEngine(repo, refs, new RuleSelector(), clock);
-//          (a fifth ctor arg — IEnumerable<IOutcomeHandler> — wires side-effect handlers)
-
-// 2. Assemble facts (your IFactProvider would do this from the host domain).
-var facts = FactDocument.Parse("""
-{
-  "order": { "client": { "nyStatus": "NYRegulated" }, "performingLab": "Lab-CA-1" }
+```ts
+for (const o of response.outcomes) {
+  switch (o.group) {
+    case 'Validation': await workflow.placeHold(o.scope, o.reason); break;
+    case 'Workflow':   await queues.route(o.type, o.scope, o.parameters); break;
+    case 'Entity':     await entities.flagOrCreate(o.scope, o.parameters); break;
+    case 'Derivation': /* value is already in response.factsAfter */ break;
+    case 'Control':    /* informational */ break;
+  }
 }
-""");
-
-// 3. Evaluate.
-EvaluationResult result = await engine.EvaluateAsync(new EvaluationRequest
-{
-    Trigger = Trigger.OrderEvent("OrderSubmitted"),
-    Facts   = facts,
-    AsOf    = clock.Now,
-});
-
-// 4. Read business-significant outcomes (skip Continue/Suppressed and derivations).
-foreach (var o in result.Outcomes.Where(o =>
-             o.Group is OutcomeGroup.Validation or OutcomeGroup.Workflow
-                     or OutcomeGroup.Entity     or OutcomeGroup.Control))
-{
-    Console.WriteLine($"{o.Type} [{o.Scope}]: {o.Reason}");
-    // → ComplianceAlert [order]: Performing lab not on NY-validated list for NY-regulated client
-}
-
-// 5. Read the decision trace (explainability) — every rule that applied, with its assertion result.
-foreach (var t in result.Trace.Where(t => t.Applied))
-{
-    Console.WriteLine($"{t.RuleKey} v{t.Version}: assert={t.AssertResult} → {t.Produced?.Type}");
-    foreach (var c in t.Conditions)
-        Console.WriteLine($"    {c.Subject} {c.Operator} ⇒ {c.Result}");
-}
-
-// 6. Derived facts (rules that stamped values for downstream phases) are in result.FactsAfter.
-var bodySite = result.FactsAfter.GetString("specimen.bodySite");
 ```
 
-When you register `IOutcomeHandler`s and resolve `IRuleEvaluator` from DI, steps 1 and 4 collapse: the
-engine dispatches each outcome to its handlers during evaluation, and you typically read only the trace for
-auditing. The `EvaluationContext` passed to each handler carries the original `Trigger`, `Facts`, and
-`AsOf`.
+---
 
-## Determinism in tests
+## 3. Trigger types
 
-Inject `FixedClock` and pass an explicit `AsOf`; the engine has no other ambient inputs, so a given
-`(rules, facts, as-of)` always produces identical outcomes and trace. This is the basis for the corpus
-regression and determinism suites — and for replaying any historical decision by passing the instant at
-which it was originally made.
+`triggerType` tells the engine *why* it is being asked to decide. It selects which families of rules apply:
+
+- **`OrderEvent`** (default) — an order-lifecycle event (submitted, amended, etc.).
+- **`TimeSchedule`** — a scheduled / time-based re-evaluation (e.g. a TAT clock fired).
+- **`DecisionReturned`** — a previously-made decision came back (e.g. a reviewer responded), prompting a
+  re-decision.
+
+Set it to match the situation that prompted the call; leave it unset for ordinary order events.
+
+---
+
+## 4. The fact assembler (host responsibility)
+
+This is the `IFactProvider` equivalent. Instead of implementing an in-process interface, your host **gathers
+its domain data and shapes it into the entity-keyed JSON document** you place in `factsJson`.
+
+- **Entity-keyed.** The top-level keys are registry **entity** keys (`test`, `specimen`, `order`,
+  `document`, `patient`, …). Each entity's properties match the **fields** the registry defines for it.
+- **Match the vocabulary.** Keys and field names must match the registry. Use
+  `GET /api/registry/vocabulary` to discover the active entities/fields, their data types, and allowed
+  values, then shape your document accordingly. Mismatches show up in the `validation` block (and block
+  evaluation under `strict: true`).
+- **Project, don't dump.** Include the fields the rules reference. Extra keys are tolerated by the engine,
+  but unknown entities/fields surface as validation findings.
+
+A typical assembler loads your aggregate(s) and projects the relevant fields:
+
+```ts
+function assembleFacts(order: Order): Record<string, unknown> {
+  return {
+    test:     { code: order.test.code, name: order.test.name },
+    specimen: { type: order.specimen.type, fixationTime: order.specimen.fixationHours },
+    order:    {
+      client: { nyStatus: order.client.nyStatus },
+      performingLab: order.performingLab,
+      type: order.type,
+    },
+    document: { requisitionComplete: order.requisition.isComplete },
+  };
+}
+```
+
+Validate the shape *before* evaluating (optional but cheap): `POST /api/registry/validate` (see
+[§6](#6-supporting-endpoints)). On the hot path, prefer non-strict `/api/evaluate` and read the returned
+`validation` block.
+
+---
+
+## 5. Outcome handling (host responsibility)
+
+This is the `IOutcomeHandler` equivalent. Outcomes are **advisory decisions** — the framework decided, and
+now **your code carries them out.** There is no in-process dispatch; you read `response.outcomes` and act.
+
+Outcome groups and the actions a host typically takes:
+
+| Group        | Example outcome types | Host action |
+|--------------|-----------------------|-------------|
+| `Validation` | `ComplianceAlert`, `MissingData` | Place a hold; block release; show the error. |
+| `Workflow`   | `RouteToQueue`, `RequireReview` | Enqueue, assign, or escalate to a reviewer. |
+| `Entity`     | `CreatePlaceholder`, `FlagEntity` | Create a stub record; flag the entity for follow-up. |
+| `Derivation` | `SetValue` | None — the value is already in `factsAfter` (see below). |
+| `Control`    | `Continue`, `Suppress` | Usually informational. |
+
+Each outcome carries `scope` (the entity it concerns — `order`/`test`/`specimen`/…), `reason` (human-readable
+justification), `severity`, and `parameters` (structured, outcome-specific data, e.g. the queue name or the
+path/value that was set). Use these to drive the host action precisely.
+
+**Derivation outcomes already wrote back.** Derivation rules can chain: a rule that derives a value stamps it
+into the fact document, and later rules see it. That post-run document is returned as `factsAfter`. So you do
+**not** apply `SetValue` outcomes yourself — instead read the derived values straight from `factsAfter`:
+
+```ts
+const bodySite = response.factsAfter?.specimen?.bodySite; // "Breast"
+```
+
+The `SetValue` outcomes in `outcomes` are there for explainability (so you can see *what* was derived and
+*why*); `factsAfter` is the authoritative result.
+
+---
+
+## 6. Supporting endpoints
+
+All require `Authorization: Bearer <token>` unless noted. Mutations are role-gated and audited
+(actor + target, never PHI).
+
+### Registry (`/api/registry`)
+
+The registry is the **vocabulary** your facts must conform to.
+
+| Method & path | Role | Purpose |
+|---|---|---|
+| `GET /api/registry/entities` | any authenticated | List all entities (any status) with their fields. |
+| `GET /api/registry/vocabulary` | any authenticated | Active entities/fields projection (path, dataType, allowedValues) — use this to build fact documents. |
+| `POST /api/registry/validate` | any authenticated | Validate a fact document against the registry; returns `{ valid, errors }`. |
+| `POST /api/registry/entities` | Admin | Create an entity. |
+| `POST /api/registry/entities/:key/fields` | Admin | Add a field to an entity. |
+| `POST /api/registry/entities/:key/deprecate` | Admin | Deprecate an entity (still resolvable). |
+| `POST /api/registry/entities/:key/fields/:name/deprecate` | Admin | Deprecate a field. |
+| `DELETE /api/registry/entities/:key` | Admin | Retire an entity (must be Deprecated + unreferenced). |
+| `DELETE /api/registry/entities/:key/fields/:name` | Admin | Retire a field. |
+
+```bash
+# Discover the vocabulary your facts must match
+curl -s http://localhost:4000/api/registry/vocabulary -H "Authorization: Bearer $TOKEN"
+
+# Validate a fact document before evaluating
+curl -s -X POST http://localhost:4000/api/registry/validate \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"facts": {"specimen": {"type": "FFPE", "fixationTime": 24}}}'
+```
+
+### Rules governance (`/api/rules`)
+
+Reads are open to any authenticated principal; mutations are role-gated. Authoring mutations **lint against
+the live registry first** and reject with `422` (a lint report) on any error.
+
+| Method & path | Role | Purpose |
+|---|---|---|
+| `GET /api/rules` | any authenticated | List active rules (optional `?asOf=<ISO-8601>&ruleSet=<name>`). |
+| `GET /api/rules/:key` | any authenticated | Get a single rule (active version) by key. |
+| `POST /api/rules` | Author | Create / save a rule. Lints first; `422` on lint errors. |
+| `POST /api/rules/:key/versions` | Author | Add a new effective-dated version. Lints first. |
+| `POST /api/rules/:key/approve` | Reviewer | Approve the active version (approver = authenticated principal). |
+| `POST /api/rules/:key/promote` | Admin | Promote (enable) a rule. |
+| `POST /api/rules/:key/disable` | Admin | Disable a rule (excluded from evaluation). |
+
+```bash
+# List active rules as of now
+curl -s http://localhost:4000/api/rules -H "Authorization: Bearer $TOKEN"
+
+# Inspect one rule
+curl -s http://localhost:4000/api/rules/ny-performing-lab-validation \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The lifecycle is **create (Author) → approve (Reviewer) → promote (Admin)**; `disable` (Admin) removes a rule
+from evaluation. Every mutation is audited.
+
+### Health (`/health`)
+
+`GET /health` — **anonymous** (no token). Use for liveness / readiness probes.
+
+```bash
+curl -s http://localhost:4000/health
+```
+
+### API documentation (`/swagger`)
+
+Interactive OpenAPI / Swagger UI is served at `http://localhost:4000/swagger` — the authoritative,
+always-current reference for every request and response shape described here.
+
+---
+
+## 7. Error model
+
+All errors are **RFC 7807 problem documents** with `Content-Type: application/problem+json`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "The facts failed registry validation.",
+  "traceId": "8f3c…"
+}
+```
+
+- **`5xx` responses leak no internals** — generic title/detail only; correlate by `traceId` against
+  server-side logs.
+- **`401`** — missing/invalid token. Re-authenticate.
+- **`403`** — authenticated but the role does not permit the operation (e.g. an Author calling `approve`).
+- **`404`** — unknown rule/entity key.
+- **`422` on `/api/evaluate` (strict mode)** — the facts failed registry validation; the body carries the
+  `validation` block.
+- **`422` on rule authoring** — a special case. The **lint rejection** body is the linter's
+  `{ isValid, findings }` report returned **verbatim**, so authoring tools can render each finding inline.
+
+A host should treat the `validation` block on a non-strict `/api/evaluate` `200` as a soft warning (decide
+whether to proceed), and a strict-mode `422` as a hard stop.
+
+---
+
+## Summary
+
+| Step | Endpoint | Host does |
+|---|---|---|
+| 1. Authenticate | `POST /api/auth/login` | Get a bearer token; send it on every call. |
+| 2. Assemble facts | — | Project domain data into an entity-keyed JSON document matching the registry. |
+| 3. Decide | `POST /api/evaluate` | POST the facts; receive outcomes + trace + `factsAfter` + validation. |
+| 4. Act | — | Read outcomes by group; place holds, route, create placeholders; read derived values from `factsAfter`. |
+
+The framework decides; the host acts. Authoring (and any natural-language drafting) happens at compile time
+and is stored in Postgres — the LLM is never on the runtime path, and evaluation is deterministic.

@@ -27,7 +27,8 @@
     "prisma:studio": "prisma studio"
   },
   "overrides": {
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "js-yaml@4.1.1": "4.2.0"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -8,11 +9,26 @@ import type { AppConfig } from './config/configuration';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
 /**
+ * Hard cap on request body size (defence-in-depth DoS guard). Fact documents and
+ * rule JSON are small; 1 MB is generous while still rejecting oversized payloads
+ * before they reach validation. Oversized bodies are rejected at the parser with a
+ * 413, normalized by the global problem+json filter.
+ */
+const MAX_REQUEST_BODY = '1mb';
+
+/**
  * Composition root. Configures cross-cutting concerns (logging, validation,
  * error normalization, CORS, Swagger) before the server starts listening.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
+
+  // Explicit body-size limits (DoS guard) on the JSON/urlencoded parsers, rather
+  // than relying on the framework default.
+  app.useBodyParser('json', { limit: MAX_REQUEST_BODY });
+  app.useBodyParser('urlencoded', { limit: MAX_REQUEST_BODY, extended: true });
 
   // Route Nest's internal logging through pino (structured + redacted).
   app.useLogger(app.get(Logger));

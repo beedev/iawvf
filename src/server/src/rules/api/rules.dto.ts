@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsISO8601, IsObject, IsOptional, IsString } from 'class-validator';
+import {
+  IsISO8601,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { ActiveVersionMetadata } from '../rule.repository';
 import { RuleDefinition } from '../../vdf/types';
 
@@ -69,14 +75,19 @@ export class CreateRuleRequestDto {
   @IsObject()
   ruleJson!: Record<string, unknown>;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Optional authoring natural-language provenance (bounded).',
+  })
   @IsOptional()
   @IsString()
+  @MaxLength(4000) // Bound stored free-text provenance (parity with interpret NL cap).
   authorNl?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(128)
   interpreterVersion?: string | null;
 }
 

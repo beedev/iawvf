@@ -5,6 +5,9 @@
 > decision is made from versioned, effective-dated rule definitions evaluated against a fact document,
 > with a complete, replayable decision trace.
 
+> **Note:** The original .NET 8 implementation is being **retired** in favor of the Node/NestJS stack
+> documented here. This is the canonical, supported implementation going forward.
+
 ## What the VDF is — the elevator pitch
 
 Clinical order processing is governed by hundreds of business and lab rules ("if the client is
@@ -15,14 +18,17 @@ coding these into an application makes them invisible, untestable, and impossibl
 The VDF inverts that. Rules are **data** — JSON definitions stored in Postgres, versioned and effective-
 dated. The engine is a pure function: given a *fact document* and an *as-of* instant, it selects the
 active rules, evaluates each one, and emits a set of **outcomes** plus a per-rule **decision trace**.
-The engine never performs side effects; it returns *what should happen*. The host application supplies
-`IOutcomeHandler`s that act on those outcomes (place a hold, route to a queue, create a placeholder
-specimen).
+The engine never performs side effects; it returns *what should happen*. The host application acts on
+those outcomes (place a hold, route to a queue, create a placeholder specimen).
+
+The entity registry is the **bottom-up source of truth**: entities are the nouns (classes) of the
+domain and fields are their typed properties. Rules are authored, validated, and evaluated against this
+registry vocabulary — nothing references a subject or value that the registry does not define.
 
 Three properties are non-negotiable and are guaranteed by construction:
 
 - **Deterministic** — same facts + same rules + same as-of instant ⇒ identical outcomes and trace.
-  Time enters only through `IClock`, so evaluation is fully reproducible and testable.
+  Time enters only through a `Clock`, so evaluation is fully reproducible and testable.
 - **Explainable** — every evaluated rule contributes a `DecisionTrace` (did it apply? did the assertion
   hold? which leaf conditions, with what subjects/values? what outcome was produced?).
 - **Auditable** — rules carry full provenance (the natural-language source, who authored/approved,
@@ -31,167 +37,147 @@ Three properties are non-negotiable and are guaranteed by construction:
 Natural-language authoring (via an LLM interpreter) exists **only at authoring time**: it translates
 English into a candidate rule expressed in the controlled vocabulary, which is then linted, paraphrased
 back for human confirmation, dry-run against fixtures, and governed (versioned/approved/effective-dated).
-The LLM is never in the runtime evaluation path.
+The LLM is **never** in the runtime decision path — every runtime decision is deterministic and
+config-driven.
 
-## Architecture — projects & responsibilities
+## Architecture — modules & responsibilities
 
-The backend is a .NET 8 solution (`src/backend/IAW.Vdf.sln`) layered around an abstractions/contracts
-project so a host embeds only what it needs.
+The backend is a NestJS application at `src/server`. It is organized into feature modules, each owning a
+single responsibility. The frontend is a React + Vite SPA at `src/frontend`, repointed at the Node API
+on port `4000`.
 
-| Project | Responsibility |
+| Module | Responsibility |
 |---|---|
-| **IAW.Vdf.Abstractions** | The contract layer: `RuleDefinition`, `FactDocument`, `Outcome`, condition model, and the six **integration seams** (below). No logic — pure contracts. Everything depends on this; it depends on nothing. |
-| **IAW.Vdf.Core** | The engine. `VdfEngine` (the `IRuleEvaluator`), `RuleSelector` (phase/priority/effective-date ordering), `OperatorEvaluator`/`OperatorSemantics`, the `Reconciler` (resolves competing outcomes), the JSON serializer, and in-memory default providers. |
-| **IAW.Vdf.Persistence** | EF Core + Postgres adapter. `VdfDbContext`, EF-backed `IRuleRepository`/`IReferenceDataProvider`, append-only decision-trace store, corpus importer. Versioned, effective-dated rule storage. |
-| **IAW.Vdf.Authoring** | Compile-time authoring tooling: `SchemaValidator`, `VocabularyLinter`, `RoundTripParaphraser`, `DryRunPreviewer`. No runtime evaluation role. |
-| **IAW.Vdf.Authoring.Llm** | The OpenAI-backed `IRuleInterpreter` (NL → candidate rule) plus an offline deterministic stub for tests. |
-| **IAW.Vdf.Api** | ASP.NET Core API: auth (JWT), rule governance, authoring endpoints, evaluation endpoint, health checks. Wires all the above via DI. |
-| **IAW.Vdf.Demo** | A runnable, deterministic harness that evaluates the committed corpus against fixture scenarios — the canonical "how to embed the engine" example. |
-| **src/frontend** | React + TypeScript + Fluent UI authoring/console SPA (Vite). |
+| **registry** (`RegistryModule`) | The entity registry — the bottom-up source of truth. Canonical entities/fields, fact validation via **Ajv**, and vocabulary projection consumed by authoring and the LLM. Seeded canonical entities: `order`, `test`, `specimen`, `patient`, `document`, `incident`, `medicalReview`, `priorTimepoint`. |
+| **vdf** (`VdfEngine`, the `vdf-engine`) | The pure deterministic engine. Pipeline: **select → evaluate** (`appliesWhen` / `assert` / `onSuccess` / `recover` / `onFailure`) **→ derive** (write-back for rule chaining) **→ dispatch → outcomes + traces + `factsAfter`**. No side effects. |
+| **rules** | Postgres-backed persistence. Versioned, effective-dated rule storage (`RuleRepository`), the engine-over-DB evaluation path (`RuleEvaluationService`), the reference-data provider for reference-backed operators, and the append-only decision-trace store. |
+| **authoring** | Compile-time authoring tooling: vocabulary linter, schema validator, deterministic round-trip paraphraser, and dry-run previewer. No runtime evaluation role. |
+| **llm** | The OpenAI rule interpreter (compile-time NL → candidate rule), grounded on the **live registry vocabulary**, with an offline stub fallback. Output is always validated by a deterministic gate (schema + registry lint) before it can be governed. |
+| **api** | Controllers exposing the surface: auth/login, registry, rules governance, authoring, evaluate, and health. |
 
-### The integration seams
+### Stack
 
-A host customizes the framework by implementing these interfaces (all in `IAW.Vdf.Abstractions`).
-Sensible defaults are registered by `AddVdfCore()`; the host overrides what it needs.
+- **NestJS 11** — application framework and dependency injection.
+- **Prisma 6 + PostgreSQL** — versioned, effective-dated rule storage and append-only trace persistence.
+- **Ajv** — fact-document validation against registry schemas.
+- **class-validator** — request DTO validation.
+- **pino** — structured, redacted logging.
+- **JWT auth + RBAC** — authentication and role-based authorization.
+- **Frontend** — React + Vite SPA (`src/frontend`), pointed at the Node API on `:4000`.
 
-| Seam | Purpose | Default |
+The engine entry point evaluates an `EvaluationRequest` and returns an `EvaluationResult`
+(`outcomes`, `trace`, `factsAfter`).
+
+## How to run
+
+Prerequisites: Node, npm, Docker.
+
+```bash
+# 1. Postgres — container iaw-postgres on localhost:5433
+docker compose up -d db
+
+# 2. Backend — NestJS API on http://localhost:4000 (Swagger at /swagger)
+cd src/server
+npm install
+npx prisma migrate dev
+npm run start:dev
+
+# 3. Frontend — Vite dev server on http://localhost:5173
+cd src/frontend
+npm install
+npm run dev
+```
+
+### Configuration
+
+Backend config lives in `src/server/.env` (gitignored). Copy `src/server/.env.example` and adjust:
+
+```ini
+NODE_ENV=development
+PORT=4000
+DATABASE_URL=postgresql://iaw:iaw@localhost:5433/iawnode?schema=public
+
+# Auth — JWT_SECRET is REQUIRED and must be >= 16 chars in production (fail-fast at startup)
+JWT_SECRET=change-me-at-least-16-chars
+JWT_EXPIRES_IN=1h
+
+# CORS — the frontend origin
+CORS_ORIGINS=http://localhost:5173
+
+# LLM interpreter (compile-time only). OPENAI_ENABLED=false falls back to the offline stub.
+OPENAI_ENABLED=false
+OPENAI_API_KEY=sk-...your-key...
+OPENAI_MODEL=gpt-4.1
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+With `OPENAI_ENABLED=false`, the **llm** module uses the offline stub interpreter — no external calls,
+fully deterministic for development and tests.
+
+### Dev login credentials
+
+Authenticate via `POST /api/auth/login` to receive a Bearer token. These accounts are **DEV-ONLY
+scaffolding** and must not be used outside local development:
+
+| Username | Password | Roles |
 |---|---|---|
-| `IRuleRepository` | Supplies the active rule definitions for an as-of instant. | In-memory (Core) → Postgres (Persistence). |
-| `IFactProvider` | Assembles the `FactDocument` for a trigger from the host's domain. | Pass-through (facts supplied directly). |
-| `IReferenceDataProvider` | Resolves reference data (thresholds, compatibility/eligibility tables) by key for reference-backed operators. | In-memory (Core) → Postgres/JSON. |
-| `IOutcomeHandler` | Acts on a produced outcome (the side-effect boundary). | None — host supplies. |
-| `IClock` | Supplies "now" so evaluation is deterministic. | `SystemClock`; tests use `FixedClock`. |
-| `IRuleInterpreter` | Authoring-time NL → candidate rule. | OpenAI interpreter or offline stub. |
-
-The engine entry point is `IRuleEvaluator.EvaluateAsync(EvaluationRequest)` → `EvaluationResult`
-(`Outcomes`, `Trace`, `FactsAfter`).
+| `author` | `author-pw` | Author |
+| `reviewer` | `reviewer-pw` | Reviewer |
+| `admin` | `admin-pw` | Admin |
+| `lead` | `lead-pw` | Author, Reviewer, Admin |
 
 ## Rule anatomy
 
 Every rule has a four-part shape — **WHEN / DECISION / ON SUCCESS / ON FAILURE** — plus an optional
-recovery step. As JSON (abbreviated from `rules/BL8.json`):
+recovery step:
 
-```json
-{
-  "key": "BL8",
-  "name": "NY-regulated order requires NY-validated performing lab",
-  "priority": 30,
-  "phase": "Validate",
-  "appliesWhen": { "type": "leaf", "subject": "order.client.nyStatus",
-                   "operator": "Equals", "value": "NYRegulated" },
-  "assert":      { "type": "leaf", "subject": "order.performingLab",
-                   "operator": "IsEligibleFor", "reference": "TestCompendium.nyValidation" },
-  "onSuccess":   { "type": "Continue" },
-  "onFailure":   { "type": "ComplianceAlert", "scope": "order", "severity": "informational",
-                   "reason": "Performing lab not on NY-validated list for NY-regulated client" }
-}
-```
+- **WHEN (`appliesWhen`)** — the applicability gate. Decides whether the rule applies at all. **Absent ⇒
+  always applies.**
+- **DECISION (`assert`)** — the condition that must hold. **Absent is treated as failing through to
+  `onFailure`** — the pattern derivation rules use to always stamp a value.
+- **ON SUCCESS (`onSuccess`)** — the outcome produced when `assert` holds (usually `Continue`).
+- **RECOVER (`recover`, optional)** — a recovery strategy attempted on `assert` failure, before
+  `onFailure` is produced.
+- **ON FAILURE (`onFailure`)** — the outcome produced when `assert` fails (and recovery, if any, does
+  not succeed).
 
-- **WHEN (`appliesWhen`)** — gates whether the rule applies at all. Omitted ⇒ always applies.
-- **DECISION (`assert`)** — the condition that must hold. If `null`, the rule "fails through" to
-  `onFailure` — the pattern derivation rules use to always stamp a value.
-- **ON SUCCESS (`onSuccess`)** — the outcome when `assert` holds (usually `Continue`).
-- **ON FAILURE (`onFailure`)** — the outcome when `assert` fails (required).
-- **RECOVER (`recover`, optional)** — a `RecoveryStrategy` (e.g. `apply-default`,
-  `find-alternate-specimen`) attempted before `onFailure`.
-
-Rules run by **phase** (`Derive` → `Validate` → `Route`), then by `priority` (lower first), then by key —
-so derivations stamp facts that later phases can read.
+Rules run in **phase** order — **Derive → Validate → Route** — then by `priority`, then by `key`. Phase
+ordering ensures derivations stamp facts that later phases can read.
 
 ### The six operator families
 
-Conditions are leaves (`subject operator value|reference`) combined into trees with `All` (AND), `Any`
-(OR), `Not`. Leaves may carry a quantifier (`This` scalar, `Any` / `Every` over a `[]` collection). The
-operators (`OperatorKind`) group into six families:
+Conditions are leaves (`subject operator value|reference`) combined into trees. A leaf may carry a
+quantifier over a collection — `This` (scalar), `Any`, or `Every`. The operators group into six families:
 
 1. **Presence** — `IsPresent`, `IsAbsent`
 2. **Equality** — `Equals`, `NotEquals`
 3. **Membership** — `InSet`, `NotInSet`
 4. **Comparison** — `GreaterThan`, `LessThan`, `GreaterOrEqual`, `LessOrEqual`, `WithinRange`
-5. **Matching** (regex / reference-backed) — `Matches`, `IsCompatibleWith`
+5. **Matching** — `Matches`, `IsCompatibleWith` (may be reference-backed)
 6. **Reference-eligibility** (reference-backed) — `IsEligibleFor`, `Exists`
 
 ### The five outcome groups
 
-Every `Outcome` has a `Type`, and its `Group` is derived deterministically. The five business effect
-groups (plus `None` for control flow) classify what a decision *means*:
+Every produced outcome belongs to one of five business effect groups (plus a neutral `None` group for
+control flow):
 
 | Group | Outcome types | Effect |
 |---|---|---|
 | **Validation** | `CompleteHold`, `PartialHold`, `Warning`, `ComplianceAlert` | Block or flag an order/test/specimen. |
 | **Workflow** | `RouteToReview`, `RouteToQueue`, `Escalate` | Route work to a human/queue. |
-| **Derivation** | `SetValue`, `ApplyDefault`, `CalculateValue` | Compute/stamp a fact for downstream rules. |
+| **Derivation** | `SetValue`, `ApplyDefault`, `CalculateValue` | Write a value back into facts for rule chaining. |
 | **Entity** | `CreatePlaceholder`, `CreateIncident`, `CreateTask` | Materialize a new entity. |
 | **Control** | `PreventAction`, `AllowAction` | Gate an action. |
 | *(None)* | `Continue`, `Suppressed` | No business effect / control flow. |
 
-## Running locally
+## Verification summary
 
-Prerequisites: .NET 8 SDK, Node 18+, Docker. Put `~/.dotnet/tools` on your `PATH` for `dotnet ef`.
+The Node stack is verified end to end:
 
-```bash
-# 1. Postgres (localhost:5433, db/user/pass = iaw)
-docker compose up -d db
-
-# 2. API (http://localhost:5044, Swagger at /swagger in Development)
-export PATH="$PATH:$HOME/.dotnet/tools"
-dotnet run --project src/backend/IAW.Vdf.Api
-
-# 3. UI (http://localhost:5173)
-cd src/frontend && npm install && npm run dev
-```
-
-### Configuration
-
-- **Backend `.env`** (repo root; copy from `.env.example`, gitignored). Loaded for local development;
-  real environment variables and `appsettings` always win. Controls the OpenAI interpreter:
-
-  ```ini
-  OPENAI_ENABLED=true
-  OPENAI_API_KEY=sk-...your-key...
-  OPENAI_MODEL=gpt-4.1
-  OPENAI_BASE_URL=https://api.openai.com/v1
-  ```
-
-- **JWT signing key** — `Jwt:Key`. In **Development** a deterministic dev key is supplied automatically
-  (and the real dev key lives in `appsettings.Development.json`). In **any non-Development environment
-  the key is required**: a missing key is a clear **fail-fast at startup**, never a per-request 500.
-  Supply it via env var (`Jwt__Key=...`) or a secret store.
-
-- **Frontend `.env`** (`src/frontend/.env`, copy from `.env.example`):
-
-  ```ini
-  VITE_API_BASE_URL=http://localhost:5044
-  ```
-
-The API's CORS allows the UI origin `http://localhost:5173` by default
-(`Cors:AllowedOrigins`).
-
-## Test & verification summary
-
-All suites are green (see `docs/ARCHITECTURE.md` for the determinism/auditability guarantees they prove).
-
-| Suite | Command | Result |
-|---|---|---|
-| Backend unit | `dotnet test tests/IAW.Vdf.Tests` | **147 passed**, 1 skipped (gated live-OpenAI smoke) |
-| Backend integration (Postgres) | `dotnet test tests/IAW.Vdf.IntegrationTests` | **10 passed** |
-| API (WebApplicationFactory + Postgres) | `dotnet test tests/IAW.Vdf.ApiTests` | **16 passed** |
-| Frontend | `cd src/frontend && npm test` | **9 passed** |
-| Frontend build / lint | `npm run build && npm run lint` | clean |
-
-Hardening verifications:
-
-- **Build**: `dotnet build src/backend/IAW.Vdf.sln` → **0 warnings, 0 errors** (EF Core / Npgsql
-  packages pinned to a single consistent 8.0.x set).
-- **Dependency scan**: `dotnet list package --vulnerable --include-transitive` → **0 vulnerable**;
-  `npm audit --audit-level=high` → **0 vulnerabilities**.
-- **Performance SLA**: a single evaluation over **112 synthesized corpus rules** completes in **~0.6 ms**
-  (SLA < 200 ms) — see `tests/IAW.Vdf.Tests/PerformanceTests.cs`.
-
-## Documentation
-
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, the evaluation pipeline, the persistence
-  model, the authoring loop, and how determinism/explainability/auditability are guaranteed.
-- [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) — how a host .NET app embeds the VDF.
-- [`docs/RULE_AUTHORING_GUIDE.md`](docs/RULE_AUTHORING_GUIDE.md) — authoring a rule in natural language,
-  reading the interpretation/gaps, lint/paraphrase/dry-run, and governance.
+| Check | Result |
+|---|---|
+| Server build / lint | clean |
+| Server tests | **227 passing** (1 gated live-OpenAI smoke test skipped) |
+| Frontend tests | **72 passing** |
+| Dependency scan (`npm audit`) | **0 high / 0 critical** |
+| Engine performance | **140 rules** evaluated against a fact document in **~0.27 ms** warm median (SLA 50 ms) |
