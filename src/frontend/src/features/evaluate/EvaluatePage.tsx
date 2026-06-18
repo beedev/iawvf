@@ -19,6 +19,7 @@ import { tryParseJson } from '../../lib/utils/json';
 import type { EvaluateResponse } from '../../lib/types/api';
 import { OutcomesPanel } from './OutcomesPanel';
 import { DecisionTracePanel } from './DecisionTracePanel';
+import { ValidationBanner } from './ValidationBanner';
 
 const SAMPLE_FACTS = `{
   "test": { "code": "FISH-T-001", "specimen": { "type": "FFPE" }, "orderedTest": "FISH-T-001" },
@@ -188,6 +189,7 @@ export function EvaluatePage() {
                 )}
                 {result && (
                   <>
+                    <ValidationBanner validation={result.validation} />
                     <div className={styles.summary}>
                       <div className={styles.stat}>
                         <span className={styles.statNum}>{result.outcomes.length}</span>

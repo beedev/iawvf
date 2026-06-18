@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   canAdminVocabulary,
-  deriveObjectName,
-  isValidSubjectPath,
-  SUBJECT_DATA_TYPES,
+  composeFieldPath,
+  FIELD_DATA_TYPES,
+  humanizeLabel,
+  isValidEntityKey,
+  isValidFieldName,
 } from './index';
 import type { VdfRole } from '../types/api';
 
@@ -26,7 +28,6 @@ describe('canAdminVocabulary (nav + route gating)', () => {
   });
 
   it('is the single source of truth for both the nav item and the route guard', () => {
-    // The same predicate gates the rail item (AppShell) and the AdminRoute redirect (App).
     const authorRoles: VdfRole[] = ['Author'];
     const adminRoles: VdfRole[] = ['Admin'];
     expect(canAdminVocabulary(authorRoles)).toBe(false);
@@ -34,57 +35,90 @@ describe('canAdminVocabulary (nav + route gating)', () => {
   });
 });
 
-describe('isValidSubjectPath (mirrors backend VocabularyPathConventions)', () => {
-  it('accepts single and dotted segments', () => {
-    expect(isValidSubjectPath('client')).toBe(true);
-    expect(isValidSubjectPath('client.program')).toBe(true);
-    expect(isValidSubjectPath('order.client.program')).toBe(true);
-    expect(isValidSubjectPath('specimen.fixationTime')).toBe(true);
-  });
-
-  it('accepts an optional trailing [] collection marker', () => {
-    expect(isValidSubjectPath('order.tests[]')).toBe(true);
-    expect(isValidSubjectPath('tests[]')).toBe(true);
+describe('isValidEntityKey (mirrors server ENTITY_KEY_PATTERN — single segment)', () => {
+  it('accepts a single identifier segment', () => {
+    expect(isValidEntityKey('kit')).toBe(true);
+    expect(isValidEntityKey('specimen')).toBe(true);
+    expect(isValidEntityKey('medicalReview')).toBe(true);
+    expect(isValidEntityKey('order2')).toBe(true);
   });
 
   it('trims surrounding whitespace before validating', () => {
-    expect(isValidSubjectPath('  client.program  ')).toBe(true);
+    expect(isValidEntityKey('  kit  ')).toBe(true);
   });
 
-  it('rejects empty, malformed, or illegally-charactered paths', () => {
-    expect(isValidSubjectPath('')).toBe(false);
-    expect(isValidSubjectPath('   ')).toBe(false);
-    expect(isValidSubjectPath(null)).toBe(false);
-    expect(isValidSubjectPath(undefined)).toBe(false);
-    expect(isValidSubjectPath('.client')).toBe(false);
-    expect(isValidSubjectPath('client.')).toBe(false);
-    expect(isValidSubjectPath('client..program')).toBe(false);
-    expect(isValidSubjectPath('1client')).toBe(false);
-    expect(isValidSubjectPath('client-program')).toBe(false);
-    expect(isValidSubjectPath('client.program[]extra')).toBe(false);
+  it('rejects dotted, empty, or illegally-charactered keys', () => {
+    expect(isValidEntityKey('')).toBe(false);
+    expect(isValidEntityKey('   ')).toBe(false);
+    expect(isValidEntityKey(null)).toBe(false);
+    expect(isValidEntityKey(undefined)).toBe(false);
+    expect(isValidEntityKey('order.client')).toBe(false); // dotted = field name, not entity key
+    expect(isValidEntityKey('1kit')).toBe(false);
+    expect(isValidEntityKey('kit-2')).toBe(false);
+    expect(isValidEntityKey('kit[]')).toBe(false);
   });
 });
 
-describe('deriveObjectName', () => {
-  it('returns the first dotted segment', () => {
-    expect(deriveObjectName('order.client.program')).toBe('order');
-    expect(deriveObjectName('specimen.fixationTime')).toBe('specimen');
+describe('isValidFieldName (mirrors server FIELD_NAME_PATTERN — dotted, optional [])', () => {
+  it('accepts single and dotted segments', () => {
+    expect(isValidFieldName('fixationTime')).toBe(true);
+    expect(isValidFieldName('client.nyStatus')).toBe(true);
+    expect(isValidFieldName('client.program')).toBe(true);
   });
 
-  it('strips a trailing [] collection marker from the first segment', () => {
-    expect(deriveObjectName('order.tests[]')).toBe('order');
-    expect(deriveObjectName('tests[]')).toBe('tests');
+  it('accepts an optional trailing [] collection marker', () => {
+    expect(isValidFieldName('tests[]')).toBe(true);
+    expect(isValidFieldName('specimens[]')).toBe(true);
   });
 
-  it('handles a single-segment path and empty input', () => {
-    expect(deriveObjectName('client')).toBe('client');
-    expect(deriveObjectName('')).toBe('');
-    expect(deriveObjectName('   ')).toBe('');
+  it('trims surrounding whitespace before validating', () => {
+    expect(isValidFieldName('  client.nyStatus  ')).toBe(true);
+  });
+
+  it('rejects empty or malformed names', () => {
+    expect(isValidFieldName('')).toBe(false);
+    expect(isValidFieldName(null)).toBe(false);
+    expect(isValidFieldName('.client')).toBe(false);
+    expect(isValidFieldName('client.')).toBe(false);
+    expect(isValidFieldName('client..program')).toBe(false);
+    expect(isValidFieldName('1client')).toBe(false);
+    expect(isValidFieldName('client-program')).toBe(false);
+    expect(isValidFieldName('client.program[]extra')).toBe(false);
   });
 });
 
-describe('SUBJECT_DATA_TYPES', () => {
+describe('humanizeLabel', () => {
+  it('capitalizes a single-word key', () => {
+    expect(humanizeLabel('kit')).toBe('Kit');
+    expect(humanizeLabel('specimen')).toBe('Specimen');
+  });
+
+  it('splits camelCase into words', () => {
+    expect(humanizeLabel('medicalReview')).toBe('Medical review');
+    expect(humanizeLabel('priorTimepoint')).toBe('Prior timepoint');
+  });
+
+  it('handles empty input', () => {
+    expect(humanizeLabel('')).toBe('');
+    expect(humanizeLabel('   ')).toBe('');
+  });
+});
+
+describe('composeFieldPath', () => {
+  it('joins an entity key and field name with a dot', () => {
+    expect(composeFieldPath('specimen', 'fixationTime')).toBe('specimen.fixationTime');
+    expect(composeFieldPath('order', 'client.nyStatus')).toBe('order.client.nyStatus');
+  });
+
+  it('trims parts and returns empty when either is blank', () => {
+    expect(composeFieldPath('  specimen  ', '  fixationTime ')).toBe('specimen.fixationTime');
+    expect(composeFieldPath('', 'fixationTime')).toBe('');
+    expect(composeFieldPath('specimen', '')).toBe('');
+  });
+});
+
+describe('FIELD_DATA_TYPES', () => {
   it('exposes the closed engine grammar in display order', () => {
-    expect(SUBJECT_DATA_TYPES).toEqual(['String', 'Number', 'Date', 'Boolean', 'Collection']);
+    expect(FIELD_DATA_TYPES).toEqual(['String', 'Number', 'Date', 'Boolean', 'Collection']);
   });
 });

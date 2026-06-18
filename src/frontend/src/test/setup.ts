@@ -18,6 +18,18 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
     }) as unknown as MediaQueryList;
 }
 
+// jsdom does not implement ResizeObserver; Fluent's MessageBar (reflow) and a few other components
+// observe element size. Provide a no-op stub so they mount without throwing in tests.
+if (typeof globalThis !== 'undefined' && !('ResizeObserver' in globalThis)) {
+  class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  (globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver =
+    ResizeObserverStub;
+}
+
 afterEach(() => {
   cleanup();
 });

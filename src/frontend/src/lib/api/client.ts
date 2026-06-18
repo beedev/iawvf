@@ -1,14 +1,15 @@
-import type { LintReport, ProblemDetails, ReferencingRule } from '../types/api';
+import type { LintReport, ProblemDetails } from '../types/api';
 
 /** The configured API base URL (no trailing slash), from Vite env with a sane default. */
 export const API_BASE_URL: string = (
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5044'
+  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 ).replace(/\/$/, '');
 
 /**
  * A structured API error. Carries the HTTP status, the parsed RFC-7807 ProblemDetails (when present),
- * the {@link LintReport} for 422 lint rejections, and — for vocabulary 409 conflicts — the
- * {@link ReferencingRule referencing rules} the server attached so the UI can explain what is blocking.
+ * and the {@link LintReport} for 422 lint rejections (returned verbatim by the rules controller, not
+ * reshaped into problem+json). The registry's retire conflicts (409) carry a human-readable `detail`
+ * on the ProblemDetails — surfaced directly via {@link Error.message}.
  *
  * IMPORTANT: never stringify the request that produced this; tokens and PHI must not be logged.
  */
@@ -40,21 +41,9 @@ export class ApiError extends Error {
     return this.status === 401;
   }
 
-  /**
-   * The active rules the server reported as referencing a vocabulary subject, surfaced via the
-   * ProblemDetails `referencingRules` extension on a 409 (e.g. a retire blocked by live usage).
-   * Empty when the error carries no such extension.
-   */
-  get referencingRules(): ReferencingRule[] {
-    const raw = this.problem?.['referencingRules'];
-    if (!Array.isArray(raw)) return [];
-    return raw.filter(
-      (r): r is ReferencingRule =>
-        typeof r === 'object' &&
-        r !== null &&
-        typeof (r as { key?: unknown }).key === 'string' &&
-        typeof (r as { name?: unknown }).name === 'string',
-    );
+  /** True when the action was rejected as a conflict (e.g. a duplicate entity key, or a blocked retire). */
+  get isConflict(): boolean {
+    return this.status === 409;
   }
 }
 

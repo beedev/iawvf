@@ -1,31 +1,45 @@
 import { request } from './client';
 import type {
+  AddFieldRequest,
   ApproveRequest,
+  CreateEntityRequest,
   CreateRuleRequest,
-  CreateVocabularySubjectRequest,
   DryRunResponse,
   EvaluateRequest,
   EvaluateResponse,
+  FactValidationResult,
   InterpretRequest,
   InterpretResponse,
   LintReport,
   LoginRequest,
   LoginResponse,
+  LoginResponseWire,
   ParaphraseResponse,
+  RegistryEntity,
+  RegistryField,
   RuleDetail,
   RuleJson,
   RuleMutationResponse,
   RuleSummary,
-  VocabularyAdminList,
-  VocabularyImpact,
+  ValidateFactsRequest,
   VocabularyResponse,
-  VocabularySubject,
 } from '../types/api';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────────────────────
 
-export function login(body: LoginRequest): Promise<LoginResponse> {
-  return request<LoginResponse>('/api/auth/login', { method: 'POST', body, anonymous: true });
+/**
+ * Authenticate against the Node API and NORMALIZE its response. The server returns
+ * `{ accessToken, expiresIn (seconds), roles }`; the auth layer wants `{ token, expiresAt, roles }`,
+ * so we map the token field and derive an absolute expiry from the lifetime at receipt time.
+ */
+export async function login(body: LoginRequest): Promise<LoginResponse> {
+  const wire = await request<LoginResponseWire>('/api/auth/login', {
+    method: 'POST',
+    body,
+    anonymous: true,
+  });
+  const expiresAt = new Date(Date.now() + wire.expiresIn * 1000).toISOString();
+  return { token: wire.accessToken, expiresAt, roles: wire.roles };
 }
 
 // ── Authoring ─────────────────────────────────────────────────────────────────────────────────
@@ -101,58 +115,66 @@ export function evaluate(body: EvaluateRequest): Promise<EvaluateResponse> {
   return request<EvaluateResponse>('/api/evaluate', { method: 'POST', body });
 }
 
-// ── Vocabulary administration (Admin-only) ──────────────────────────────────────────────────────
+// ── Entity registry (Admin-only vocabulary administration) ───────────────────────────────────────
 //
-// Subject paths contain dots and may end in `[]`, which are awkward (and lossy) inside a route segment.
-// The controller accepts a `?path=` query override that wins over the route segment, so we pass the path
-// as a query parameter and use a stable `current` placeholder for the route segment — unambiguous and
-// avoiding any double-encoding pitfalls.
+// The registry models the controlled vocabulary as ENTITIES (top-level fact objects) that own FIELDS
+// (their addressable properties). Reads are open to any authenticated principal; mutations require the
+// Admin role (the API 403s otherwise). Field creation REQUIRES an existing entity (selected, not typed)
+// — adding a field to a missing entity is a 404, which is the structural fix for free-text path drift.
 
-const PATH_SEGMENT_PLACEHOLDER = 'current';
-
-/** Lists ALL governed subjects (including deprecated), grouped object → properties. Admin only. */
-export function getVocabularyAdmin(signal?: AbortSignal): Promise<VocabularyAdminList> {
-  return request<VocabularyAdminList>('/api/vocabulary', { signal });
+/** Lists ALL entities (any status) with their fields. Used by the Vocabulary admin screen. */
+export function listEntities(signal?: AbortSignal): Promise<RegistryEntity[]> {
+  return request<RegistryEntity[]>('/api/registry/entities', { signal });
 }
 
-/** Creates a new Active governed subject. 201 on success; 409 if the path exists; 400 on invalid input. */
-export function createVocabularySubject(
-  body: CreateVocabularySubjectRequest,
-): Promise<VocabularySubject> {
-  return request<VocabularySubject>('/api/vocabulary', { method: 'POST', body });
+/** Creates a new entity. 201 on success; 409 on a case-insensitive duplicate key; 400 on invalid key. */
+export function createEntity(body: CreateEntityRequest): Promise<RegistryEntity> {
+  return request<RegistryEntity>('/api/registry/entities', { method: 'POST', body });
 }
 
-/** Returns the active rules that reference a subject path (impact analysis). */
-export function getVocabularyImpact(
-  path: string,
-  signal?: AbortSignal,
-): Promise<VocabularyImpact> {
-  return request<VocabularyImpact>(`/api/vocabulary/${PATH_SEGMENT_PLACEHOLDER}/impact`, {
-    query: { path },
-    signal,
-  });
+/** Adds a field to an EXISTING entity (selected by key). 201; 404 if the entity is gone; 409 on dup field. */
+export function addField(entityKey: string, body: AddFieldRequest): Promise<RegistryField> {
+  return request<RegistryField>(
+    `/api/registry/entities/${encodeURIComponent(entityKey)}/fields`,
+    { method: 'POST', body },
+  );
 }
 
-/** Deprecates a subject (still resolvable, hidden from new authoring). Returns the impact list. */
-export function deprecateVocabularySubject(path: string): Promise<VocabularyImpact> {
-  return request<VocabularyImpact>(`/api/vocabulary/${PATH_SEGMENT_PLACEHOLDER}/deprecate`, {
-    method: 'POST',
-    query: { path },
-  });
+/** Deprecates an entity (kept resolvable so live rules don't break). */
+export function deprecateEntity(entityKey: string): Promise<RegistryEntity> {
+  return request<RegistryEntity>(
+    `/api/registry/entities/${encodeURIComponent(entityKey)}/deprecate`,
+    { method: 'POST' },
+  );
+}
+
+/** Deprecates a single field on an entity (kept resolvable). */
+export function deprecateField(entityKey: string, name: string): Promise<RegistryField> {
+  return request<RegistryField>(
+    `/api/registry/entities/${encodeURIComponent(entityKey)}/fields/${encodeURIComponent(name)}/deprecate`,
+    { method: 'POST' },
+  );
 }
 
 /**
- * Retires (deletes) a deprecated, unreferenced subject. 204 on success; 409 with `referencingRules`
- * when still referenced or not yet deprecated (surface those on {@link ApiError.referencingRules}).
+ * Retires (deletes) a DEPRECATED, unreferenced entity. 204 on success; 422 when not yet deprecated;
+ * 409 when still referenced (the conflict detail explains the block).
  */
-export function retireVocabularySubject(path: string): Promise<void> {
-  return request<void>(`/api/vocabulary/${PATH_SEGMENT_PLACEHOLDER}`, {
+export function retireEntity(entityKey: string): Promise<void> {
+  return request<void>(`/api/registry/entities/${encodeURIComponent(entityKey)}`, {
     method: 'DELETE',
-    query: { path },
   });
 }
 
-/** Manually rebuilds the live catalog cache from the DB. */
-export function refreshVocabularyCatalog(): Promise<void> {
-  return request<void>('/api/vocabulary/refresh', { method: 'POST' });
+/** Retires (deletes) a DEPRECATED, unreferenced field. Same gates as entity retirement. */
+export function retireField(entityKey: string, name: string): Promise<void> {
+  return request<void>(
+    `/api/registry/entities/${encodeURIComponent(entityKey)}/fields/${encodeURIComponent(name)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** Validates a fact document against the registry schema. Demonstrates the typed registry. */
+export function validateFacts(body: ValidateFactsRequest): Promise<FactValidationResult> {
+  return request<FactValidationResult>('/api/registry/validate', { method: 'POST', body });
 }

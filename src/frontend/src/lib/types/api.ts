@@ -3,7 +3,7 @@
  * Enum-like fields are serialized by the API as their string names (e.g. `"Error"`, `"Hold"`),
  * so we model them as string unions where the set is closed, or `string` where it is open.
  *
- * Source of truth: src/backend/IAW.Vdf.Api/Dtos/*.cs
+ * Source of truth: src/server (NestJS) — auth/dto, vdf/api, authoring/api, rules/api, registry.
  */
 
 // ── Auth ──────────────────────────────────────────────────────────────────────────────────────
@@ -16,9 +16,23 @@ export interface LoginRequest {
   password: string;
 }
 
+/**
+ * The raw login response from the Node API. The signed token is `accessToken`, and the lifetime is
+ * given as `expiresIn` seconds (not an absolute timestamp). The endpoint client normalizes this into
+ * the {@link LoginResponse} the auth layer consumes.
+ */
+export interface LoginResponseWire {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number; // seconds
+  username: string;
+  roles: VdfRole[];
+}
+
+/** The normalized login result the auth layer consumes (token + absolute expiry). */
 export interface LoginResponse {
   token: string;
-  expiresAt: string; // ISO-8601
+  expiresAt: string; // ISO-8601, derived from expiresIn at receipt time
   roles: VdfRole[];
 }
 
@@ -181,6 +195,11 @@ export interface EvaluateRequest {
   factsJson: Record<string, unknown>;
   ruleSet?: string | null;
   triggerType?: TriggerType | null;
+  /**
+   * When true, a registry validation failure blocks evaluation (422). Default false: the API returns
+   * outcomes alongside a {@link ValidationBlock} so the UI can surface mismatches non-destructively.
+   */
+  strict?: boolean | null;
 }
 
 export interface Outcome {
@@ -210,93 +229,106 @@ export interface DecisionTrace {
   produced: Outcome | null;
 }
 
+/** A single registry validation error attached to an evaluation (entity-/path-scoped, no PHI). */
+export interface ValidationError {
+  entity: string;
+  path: string;
+  message: string;
+}
+
+/**
+ * The registry validation block the Node API attaches to every evaluation. When `valid` is false the
+ * `errors` describe the facts that did not match the registry schema; the outcomes are still returned
+ * (unless the request was `strict`), so the UI surfaces a non-blocking banner.
+ */
+export interface ValidationBlock {
+  valid: boolean;
+  errors: ValidationError[];
+}
+
 export interface EvaluateResponse {
   outcomes: Outcome[];
   trace: DecisionTrace[];
   factsAfter: Record<string, unknown> | null;
+  /**
+   * The registry validation findings for the submitted facts. Optional for forward/backward
+   * compatibility — a missing block is treated as "valid" (no banner).
+   */
+  validation?: ValidationBlock;
 }
 
-// ── Vocabulary administration (Admin-only) ──────────────────────────────────────────────────────
+// ── Entity registry (Admin-only vocabulary administration) ──────────────────────────────────────
 //
-// Source of truth: src/backend/IAW.Vdf.Api/Dtos/VocabularyAdminDtos.cs and Controllers/VocabularyController.cs.
-// This is the GOVERNED, DB-backed catalog of subjects (objects/properties) that authoring + interpretation
-// are grounded on. The admin view includes deprecated subjects; the authoring tree (VocabularyResponse) is
-// active-only.
+// Source of truth: src/server/src/registry/registry.controller.ts and its DTOs.
+// The registry is the typed, governed model behind the controlled vocabulary: ENTITIES (top-level
+// fact objects, e.g. `specimen`) own FIELDS (their addressable properties, e.g. `fixationTime`).
+// Fields are added by SELECTING an existing entity — never by typing a free path — which is the
+// fix for the old "Kit / kit" duplicate. Entity keys are unique case-insensitively (409 on dup).
 
-/** A subject's lifecycle status. `Deprecated` subjects stay resolvable but are hidden from new authoring. */
-export type VocabularySubjectStatus = 'Active' | 'Deprecated';
+/** A registry artifact's lifecycle status. `Deprecated` stays resolvable but is hidden from authoring. */
+export type RegistryStatus = 'Active' | 'Deprecated';
 
-/** The closed set of subject data types the engine understands. */
-export type SubjectDataType = 'String' | 'Number' | 'Date' | 'Boolean' | 'Collection';
+/** The closed set of field data types the engine understands. */
+export type FieldDataType = 'String' | 'Number' | 'Date' | 'Boolean' | 'Collection';
 
-/** A single governed vocabulary subject (admin view; includes deprecated rows). */
-export interface VocabularySubject {
-  /** The dotted fact path (e.g. `order.client.program`, `order.tests[]`). */
-  path: string;
-  /** The owning object name (first segment, sans trailing `[]`). */
-  objectName: string;
-  /** The humanized display label. */
-  label: string;
-  /** The data type: `String|Number|Date|Boolean|Collection`. */
-  dataType: string;
-  /** An optional description. */
-  description?: string | null;
-  /** Lifecycle status: `Active` | `Deprecated`. */
-  status: VocabularySubjectStatus;
-  /** Who created the subject. */
-  createdBy: string;
-  /** When the subject was created (ISO-8601). */
-  createdAt: string;
-  /** Who approved the most recent governance action (nullable). */
-  approvedBy?: string | null;
-  /** When the most recent governance action was approved (nullable, ISO-8601). */
-  approvedAt?: string | null;
-}
-
-/** An object grouping its properties (admin tree view). */
-export interface VocabularyObjectGroup {
-  /** The object name (e.g. `order`). */
+/** A single field on an entity (one addressable fact property). */
+export interface RegistryField {
+  id: string;
+  entityId: string;
+  /** Field name relative to its entity (may be dotted, e.g. `client.nyStatus`; trailing `[]` = collection). */
   name: string;
-  /** The humanized object label (e.g. `Order`). */
-  label: string;
-  /** The properties (subjects) belonging to this object, including deprecated ones. */
-  properties: VocabularySubject[];
+  dataType: FieldDataType;
+  required: boolean;
+  /** Closed set of permitted values (enum). Empty means any value of the data type. */
+  allowedValues: string[];
+  description: string | null;
+  status: RegistryStatus;
 }
 
-/** The full admin vocabulary listing (objects → properties, all statuses). */
-export interface VocabularyAdminList {
-  /** The objects with their properties. */
-  objects: VocabularyObjectGroup[];
-}
-
-/** The request body for creating a new governed subject. */
-export interface CreateVocabularySubjectRequest {
-  /** The dotted fact path (e.g. `"client.program"`). Required. */
-  path: string;
-  /** The data type: `String|Number|Date|Boolean|Collection`. Required. */
-  dataType: SubjectDataType;
-  /** An optional display label; derived from the object name when omitted. */
-  label?: string | null;
-  /** An optional description. */
-  description?: string | null;
-}
-
-/** A rule that references a subject path (impact analysis row). */
-export interface ReferencingRule {
-  /** The rule key. */
+/** A top-level registry entity together with its fields (the standard listing projection). */
+export interface RegistryEntity {
+  id: string;
+  /** Canonical lower-case key (e.g. `specimen`). Unique case-insensitively. */
   key: string;
-  /** The rule name. */
-  name: string;
+  label: string;
+  description: string | null;
+  status: RegistryStatus;
+  createdBy: string;
+  fields: RegistryField[];
 }
 
-/** The impact-analysis response for a subject path. */
-export interface VocabularyImpact {
-  /** The analyzed subject path. */
-  path: string;
-  /** The active rules that reference the path. */
-  referencingRules: ReferencingRule[];
-  /** The number of referencing rules (server-computed). */
-  count: number;
+/** Request body for creating a registry entity. 409 on a case-insensitive duplicate key. */
+export interface CreateEntityRequest {
+  /** A single identifier segment matching `/^[a-zA-Z][a-zA-Z0-9]*$/`. Stored canonical lower-case. */
+  key: string;
+  /** Optional display label; derived from the key when omitted. */
+  label?: string | null;
+  /** Optional description. */
+  description?: string | null;
+}
+
+/** Request body for adding a field to an existing (selected) entity. */
+export interface AddFieldRequest {
+  /** Field name relative to the entity. Dotted segments allowed; optional trailing `[]`. */
+  name: string;
+  dataType: FieldDataType;
+  /** Whether the field is required. Defaults to false. */
+  required?: boolean;
+  /** Optional closed value set (enum). */
+  allowedValues?: string[];
+  /** Optional description. */
+  description?: string | null;
+}
+
+/** Request body for runtime fact validation against the registry. */
+export interface ValidateFactsRequest {
+  facts: Record<string, unknown>;
+}
+
+/** The result of validating a fact document against the registry. */
+export interface FactValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
 }
 
 // ── Problem Details (RFC 7807) ──────────────────────────────────────────────────────────────────
@@ -307,5 +339,6 @@ export interface ProblemDetails {
   status?: number;
   detail?: string;
   instance?: string;
+  traceId?: string;
   [key: string]: unknown;
 }

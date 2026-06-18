@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   makeStyles,
   tokens,
@@ -13,10 +13,10 @@ import {
 } from '@fluentui/react-components';
 import {
   AddRegular,
-  ArrowClockwiseRegular,
   BookRegular,
   ArchiveRegular,
   DeleteRegular,
+  TextBulletListSquareRegular,
 } from '@fluentui/react-icons';
 import { fonts, radius, space } from '../../theme/tokens';
 import {
@@ -29,15 +29,16 @@ import {
   Reveal,
 } from '../../components';
 import { api, type ApiError } from '../../lib/api';
-import { VOCABULARY_QUERY_KEY } from './queryKeys';
-import { AddPropertyDialog } from './AddPropertyDialog';
-import { DeprecateDialog } from './DeprecateDialog';
-import { RetireDialog } from './RetireDialog';
-import type {
-  VocabularyImpact,
-  VocabularyObjectGroup,
-  VocabularySubject,
-} from '../../lib/types/api';
+import { REGISTRY_QUERY_KEY } from './queryKeys';
+import { AddEntityDialog } from './AddEntityDialog';
+import { AddFieldDialog } from './AddFieldDialog';
+import {
+  RegistryActionDialog,
+  type RegistryAction,
+  type RegistryActionTarget,
+} from './RegistryActionDialog';
+import { ValidateFactsPanel } from './ValidateFactsPanel';
+import type { RegistryEntity, RegistryField } from '../../lib/types/api';
 
 const useStyles = makeStyles({
   body: {
@@ -49,10 +50,11 @@ const useStyles = makeStyles({
   },
   groups: { display: 'flex', flexDirection: 'column', gap: space.xl },
   count: { color: tokens.colorNeutralForeground3 },
+  entityMeta: { display: 'flex', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' },
   rows: { display: 'flex', flexDirection: 'column' },
   row: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(160px, 1.2fr) minmax(180px, 2fr) auto auto auto',
+    gridTemplateColumns: 'minmax(200px, 1.6fr) auto minmax(140px, 1fr) auto auto',
     alignItems: 'center',
     gap: space.lg,
     paddingInline: space.xl,
@@ -61,16 +63,17 @@ const useStyles = makeStyles({
   },
   rowDeprecated: { backgroundColor: tokens.colorNeutralBackground2 },
   nameCell: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 },
-  name: { fontWeight: 600, color: tokens.colorNeutralForeground1 },
-  nameMuted: { color: tokens.colorNeutralForeground3 },
-  desc: { fontSize: '12px', color: tokens.colorNeutralForeground3 },
-  path: {
+  fieldPath: {
     fontFamily: fonts.mono,
     fontSize: '12.5px',
-    color: tokens.colorNeutralForeground2,
+    color: tokens.colorNeutralForeground1,
+    fontWeight: 600,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
+  fieldPathMuted: { color: tokens.colorNeutralForeground3 },
+  desc: { fontSize: '12px', color: tokens.colorNeutralForeground3 },
+  allowed: { fontSize: '11.5px', color: tokens.colorNeutralForeground3, fontFamily: fonts.mono },
   typeChip: {
     justifySelf: 'start',
     display: 'inline-block',
@@ -84,6 +87,13 @@ const useStyles = makeStyles({
     fontFamily: fonts.mono,
   },
   actions: { display: 'flex', gap: space.xs, justifyContent: 'flex-end' },
+  emptyFields: {
+    paddingInline: space.xl,
+    paddingBlock: space.lg,
+    borderTop: `1px solid ${tokens.colorNeutralStroke3}`,
+    color: tokens.colorNeutralForeground3,
+    fontSize: '13px',
+  },
 });
 
 interface ToastState {
@@ -97,13 +107,15 @@ export function VocabularyPage() {
   const toasterId = useId('vocabulary-toaster');
   const { dispatchToast } = useToastController(toasterId);
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [deprecateSubject, setDeprecateSubject] = useState<VocabularySubject | null>(null);
-  const [retireSubject, setRetireSubject] = useState<VocabularySubject | null>(null);
+  const [addEntityOpen, setAddEntityOpen] = useState(false);
+  const [addFieldOpen, setAddFieldOpen] = useState(false);
+  const [addFieldEntity, setAddFieldEntity] = useState<string | undefined>(undefined);
+  const [actionTarget, setActionTarget] = useState<RegistryActionTarget | null>(null);
+  const [action, setAction] = useState<RegistryAction>('deprecate');
 
-  const vocabQuery = useQuery({
-    queryKey: VOCABULARY_QUERY_KEY,
-    queryFn: ({ signal }) => api.getVocabularyAdmin(signal),
+  const registryQuery = useQuery({
+    queryKey: REGISTRY_QUERY_KEY,
+    queryFn: ({ signal }) => api.listEntities(signal),
   });
 
   const notify = (toast: ToastState) =>
@@ -115,186 +127,281 @@ export function VocabularyPage() {
       { intent: toast.intent },
     );
 
-  const refreshMutation = useMutation<void, ApiError>({
-    mutationFn: () => api.refreshVocabularyCatalog(),
-    onSuccess: () => {
-      vocabQuery.refetch();
-      notify({ intent: 'success', title: 'Catalog refreshed', body: 'The live catalog cache was rebuilt.' });
-    },
-    onError: (err) => notify({ intent: 'error', title: 'Refresh failed', body: err.message }),
-  });
-
-  const onCreated = (subject: VocabularySubject) =>
+  const onEntityCreated = (entity: RegistryEntity) =>
     notify({
       intent: 'success',
-      title: 'Term added',
-      body: `${subject.path} is now available to author against.`,
+      title: 'Entity added',
+      body: `'${entity.key}' is now available. Add fields to make its facts authorable.`,
     });
 
-  const onDeprecated = (path: string, impact: VocabularyImpact) =>
+  const onFieldCreated = (entityKey: string, field: RegistryField) =>
     notify({
       intent: 'success',
-      title: 'Term deprecated',
+      title: 'Field added',
+      body: `${entityKey}.${field.name} is now available to author against.`,
+    });
+
+  const onActionDone = (label: string, done: RegistryAction) =>
+    notify({
+      intent: 'success',
+      title: done === 'retire' ? 'Retired' : 'Deprecated',
       body:
-        impact.referencingRules.length > 0
-          ? `${path} is hidden from new authoring; ${impact.referencingRules.length} live rule(s) still resolve it.`
-          : `${path} is hidden from new authoring.`,
+        done === 'retire'
+          ? `${label} was removed from the registry.`
+          : `${label} is hidden from new authoring; live rules still resolve it.`,
     });
 
-  const onRetired = (path: string) =>
-    notify({ intent: 'success', title: 'Term retired', body: `${path} was removed from the catalog.` });
+  const openAddField = (entityKey?: string) => {
+    setAddFieldEntity(entityKey);
+    setAddFieldOpen(true);
+  };
+  const openAction = (target: RegistryActionTarget, which: RegistryAction) => {
+    setActionTarget(target);
+    setAction(which);
+  };
 
-  const groups = vocabQuery.data?.objects ?? [];
-  const totalProps = groups.reduce((sum, g) => sum + g.properties.length, 0);
+  const entities = registryQuery.data ?? [];
+  const totalFields = entities.reduce((sum, e) => sum + e.fields.length, 0);
+  const hasActiveEntity = entities.some((e) => e.status === 'Active');
 
   return (
     <div>
       <PageHeader
-        eyebrow="Vocabulary"
-        title="The controlled terms authoring is grounded on."
-        lede="Manage the governed objects and properties that rules can reference. Add new terms, deprecate ones that should no longer be authored against, and retire those that are fully unused."
+        eyebrow="Entity registry"
+        title="The typed terms authoring is grounded on."
+        lede="The controlled vocabulary is a registry of entities (fact objects) and their fields (typed properties). Create entities deliberately, then add fields by selecting an entity — never by typing a free path. Deprecate terms that should no longer be authored against, and retire those that are fully unused."
         actions={
           <>
             <Button
               appearance="subtle"
-              icon={<ArrowClockwiseRegular />}
-              onClick={() => refreshMutation.mutate()}
-              disabled={refreshMutation.isPending}
+              icon={<TextBulletListSquareRegular />}
+              onClick={() => openAddField()}
+              disabled={!hasActiveEntity}
             >
-              {refreshMutation.isPending ? 'Refreshing…' : 'Refresh catalog'}
+              Add field
             </Button>
-            <Button appearance="primary" icon={<AddRegular />} onClick={() => setAddOpen(true)}>
-              Add property
+            <Button appearance="primary" icon={<AddRegular />} onClick={() => setAddEntityOpen(true)}>
+              Add entity
             </Button>
           </>
         }
       />
 
       <div className={styles.body}>
-        {vocabQuery.isLoading && <LoadingState label="Loading vocabulary…" />}
+        {registryQuery.isLoading && <LoadingState label="Loading the entity registry…" />}
 
-        {vocabQuery.isError && (
+        {registryQuery.isError && (
           <ErrorState
-            title="Could not load the vocabulary"
-            message={(vocabQuery.error as ApiError)?.message ?? 'Unexpected error.'}
-            onRetry={() => vocabQuery.refetch()}
+            title="Could not load the registry"
+            message={(registryQuery.error as ApiError)?.message ?? 'Unexpected error.'}
+            onRetry={() => registryQuery.refetch()}
           />
         )}
 
-        {vocabQuery.data && groups.length === 0 && (
+        {registryQuery.data && entities.length === 0 && (
           <EmptyState
             icon={<BookRegular />}
-            title="No vocabulary terms yet"
-            description="Add the first property to start grounding rules in a controlled vocabulary."
+            title="No entities yet"
+            description="Add the first entity to start grounding rules in a typed registry."
             action={
-              <Button appearance="primary" icon={<AddRegular />} onClick={() => setAddOpen(true)}>
-                Add property
+              <Button appearance="primary" icon={<AddRegular />} onClick={() => setAddEntityOpen(true)}>
+                Add entity
               </Button>
             }
           />
         )}
 
-        {vocabQuery.data && groups.length > 0 && (
+        {registryQuery.data && entities.length > 0 && (
           <Reveal className={styles.groups}>
-            {groups.map((group: VocabularyObjectGroup) => (
-              <Panel
-                key={group.name}
-                eyebrow="Object"
-                title={group.label}
-                description={
-                  <span className={styles.count}>
-                    {group.properties.length} propert
-                    {group.properties.length === 1 ? 'y' : 'ies'}
-                  </span>
-                }
-                flush
-              >
-                <div
-                  className={styles.rows}
-                  role="table"
-                  aria-label={`${group.label} properties`}
-                  data-testid={`object-group-${group.name}`}
+            {entities.map((entity) => {
+              const entityDeprecated = entity.status === 'Deprecated';
+              return (
+                <Panel
+                  key={entity.key}
+                  eyebrow="Entity"
+                  title={entity.label}
+                  description={
+                    <span className={styles.entityMeta}>
+                      <span className={styles.count}>
+                        <code>{entity.key}</code> · {entity.fields.length} field
+                        {entity.fields.length === 1 ? '' : 's'}
+                      </span>
+                      {entityDeprecated ? (
+                        <StatusBadge kind="neutral">Deprecated</StatusBadge>
+                      ) : (
+                        <StatusBadge kind="success">Active</StatusBadge>
+                      )}
+                    </span>
+                  }
+                  actions={
+                    <>
+                      {!entityDeprecated && (
+                        <Button
+                          size="small"
+                          appearance="subtle"
+                          icon={<AddRegular />}
+                          onClick={() => openAddField(entity.key)}
+                        >
+                          Add field
+                        </Button>
+                      )}
+                      {!entityDeprecated && (
+                        <Button
+                          size="small"
+                          appearance="subtle"
+                          icon={<ArchiveRegular />}
+                          onClick={() =>
+                            openAction(
+                              { kind: 'entity', entityKey: entity.key, label: entity.label },
+                              'deprecate',
+                            )
+                          }
+                        >
+                          Deprecate
+                        </Button>
+                      )}
+                      {entityDeprecated && (
+                        <Button
+                          size="small"
+                          appearance="subtle"
+                          icon={<DeleteRegular />}
+                          onClick={() =>
+                            openAction(
+                              { kind: 'entity', entityKey: entity.key, label: entity.label },
+                              'retire',
+                            )
+                          }
+                        >
+                          Retire
+                        </Button>
+                      )}
+                    </>
+                  }
+                  flush
                 >
-                  {group.properties.map((prop) => {
-                    const deprecated = prop.status === 'Deprecated';
-                    return (
-                      <div
-                        key={prop.path}
-                        role="row"
-                        className={`${styles.row} ${deprecated ? styles.rowDeprecated : ''}`}
-                      >
-                        <div className={styles.nameCell} role="cell">
-                          <span
-                            className={`${styles.name} ${deprecated ? styles.nameMuted : ''}`}
+                  {entity.fields.length === 0 ? (
+                    <div className={styles.emptyFields}>
+                      No fields yet. Add a field to make this entity&rsquo;s facts authorable.
+                    </div>
+                  ) : (
+                    <div
+                      className={styles.rows}
+                      role="table"
+                      aria-label={`${entity.label} fields`}
+                      data-testid={`entity-group-${entity.key}`}
+                    >
+                      {entity.fields.map((field) => {
+                        const deprecated = field.status === 'Deprecated';
+                        const path = `${entity.key}.${field.name}`;
+                        return (
+                          <div
+                            key={field.name}
+                            role="row"
+                            className={`${styles.row} ${deprecated ? styles.rowDeprecated : ''}`}
                           >
-                            {prop.label}
-                          </span>
-                          {prop.description && (
-                            <span className={styles.desc}>{prop.description}</span>
-                          )}
-                        </div>
-                        <span className={styles.path} role="cell" title={prop.path}>
-                          {prop.path}
-                        </span>
-                        <span className={styles.typeChip} role="cell">
-                          {prop.dataType}
-                        </span>
-                        <span role="cell">
-                          {deprecated ? (
-                            <StatusBadge kind="neutral">Deprecated</StatusBadge>
-                          ) : (
-                            <StatusBadge kind="success">Active</StatusBadge>
-                          )}
-                        </span>
-                        <span className={styles.actions} role="cell">
-                          {!deprecated && (
-                            <Button
-                              size="small"
-                              appearance="subtle"
-                              icon={<ArchiveRegular />}
-                              onClick={() => setDeprecateSubject(prop)}
-                            >
-                              Deprecate
-                            </Button>
-                          )}
-                          {deprecated && (
-                            <Button
-                              size="small"
-                              appearance="subtle"
-                              icon={<DeleteRegular />}
-                              onClick={() => setRetireSubject(prop)}
-                            >
-                              Retire
-                            </Button>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Panel>
-            ))}
+                            <div className={styles.nameCell} role="cell">
+                              <span
+                                className={`${styles.fieldPath} ${deprecated ? styles.fieldPathMuted : ''}`}
+                                title={path}
+                              >
+                                {path}
+                              </span>
+                              {field.description && (
+                                <span className={styles.desc}>{field.description}</span>
+                              )}
+                              {field.allowedValues.length > 0 && (
+                                <span className={styles.allowed}>
+                                  {field.allowedValues.join(' · ')}
+                                </span>
+                              )}
+                            </div>
+                            <span className={styles.typeChip} role="cell">
+                              {field.dataType}
+                            </span>
+                            <span role="cell">
+                              {deprecated ? (
+                                <StatusBadge kind="neutral">Deprecated</StatusBadge>
+                              ) : (
+                                <StatusBadge kind="success">Active</StatusBadge>
+                              )}
+                            </span>
+                            <span role="cell" className={styles.count}>
+                              {field.required ? 'Required' : 'Optional'}
+                            </span>
+                            <span className={styles.actions} role="cell">
+                              {!deprecated && (
+                                <Button
+                                  size="small"
+                                  appearance="subtle"
+                                  icon={<ArchiveRegular />}
+                                  onClick={() =>
+                                    openAction(
+                                      { kind: 'field', entityKey: entity.key, name: field.name },
+                                      'deprecate',
+                                    )
+                                  }
+                                >
+                                  Deprecate
+                                </Button>
+                              )}
+                              {deprecated && (
+                                <Button
+                                  size="small"
+                                  appearance="subtle"
+                                  icon={<DeleteRegular />}
+                                  onClick={() =>
+                                    openAction(
+                                      { kind: 'field', entityKey: entity.key, name: field.name },
+                                      'retire',
+                                    )
+                                  }
+                                >
+                                  Retire
+                                </Button>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Panel>
+              );
+            })}
           </Reveal>
         )}
 
-        {vocabQuery.data && groups.length > 0 && (
+        {registryQuery.data && entities.length > 0 && (
           <span className={styles.count}>
-            {totalProps} term{totalProps === 1 ? '' : 's'} across {groups.length} object
-            {groups.length === 1 ? '' : 's'}.
+            {totalFields} field{totalFields === 1 ? '' : 's'} across {entities.length} entit
+            {entities.length === 1 ? 'y' : 'ies'}.
           </span>
+        )}
+
+        {registryQuery.data && (
+          <Reveal index={1}>
+            <ValidateFactsPanel />
+          </Reveal>
         )}
       </div>
 
-      <AddPropertyDialog open={addOpen} onOpenChange={setAddOpen} onCreated={onCreated} />
-      <DeprecateDialog
-        subject={deprecateSubject}
-        onOpenChange={(open) => !open && setDeprecateSubject(null)}
-        onDeprecated={onDeprecated}
+      <AddEntityDialog
+        open={addEntityOpen}
+        onOpenChange={setAddEntityOpen}
+        onCreated={onEntityCreated}
       />
-      <RetireDialog
-        subject={retireSubject}
-        onOpenChange={(open) => !open && setRetireSubject(null)}
-        onRetired={onRetired}
+      <AddFieldDialog
+        open={addFieldOpen}
+        onOpenChange={setAddFieldOpen}
+        entities={entities}
+        initialEntityKey={addFieldEntity}
+        onCreated={onFieldCreated}
+      />
+      <RegistryActionDialog
+        target={actionTarget}
+        action={action}
+        onOpenChange={(open) => !open && setActionTarget(null)}
+        onDone={onActionDone}
       />
 
       <Toaster toasterId={toasterId} aria-live="polite" />
