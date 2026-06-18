@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IAW.Vdf.Tests", "..\..\test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IAW.Vdf.IntegrationTests", "..\..\tests\IAW.Vdf.IntegrationTests\IAW.Vdf.IntegrationTests.csproj", "{DA7C84D9-BBF9-4585-A7CC-27FED78569CC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IAW.Vdf.ApiTests", "..\..\tests\IAW.Vdf.ApiTests\IAW.Vdf.ApiTests.csproj", "{4D141740-B299-4CB5-9A8C-B4C001BD1937}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -66,5 +68,9 @@ Global
 		{DA7C84D9-BBF9-4585-A7CC-27FED78569CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DA7C84D9-BBF9-4585-A7CC-27FED78569CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DA7C84D9-BBF9-4585-A7CC-27FED78569CC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4D141740-B299-4CB5-9A8C-B4C001BD1937}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4D141740-B299-4CB5-9A8C-B4C001BD1937}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4D141740-B299-4CB5-9A8C-B4C001BD1937}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4D141740-B299-4CB5-9A8C-B4C001BD1937}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
