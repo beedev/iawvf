@@ -103,15 +103,29 @@ export const statusDark: StatusPalette = {
 
 /**
  * Outcome groups → a stable accent color, so the Evaluate playground reads at a glance.
- * Keys mirror the API's `OutcomeGroup` enum string values.
+ *
+ * Keys mirror the API's `OutcomeGroup` enum string values (Validation / Workflow / Entity / Control /
+ * Derivation / None). The legacy effect-name keys (Hold / Route / Flag / Derive / Annotate) are
+ * retained for backward compatibility with any older consumer; both resolve to the same accents.
+ *
+ * Accent intent: Validation (held/flagged) = amber, Control (blocked) = red, Workflow (routed) =
+ * teal/info, Entity (records created) = brand, Derivation (computed) = green, None = neutral. All
+ * foreground/background pairs are AA against the card surface.
  */
 export const outcomeGroupColors: Record<string, { fg: string; bg: string; border: string }> = {
+  // API OutcomeGroup enum keys.
+  Validation: { fg: '#92500A', bg: '#FBEFDD', border: '#F0CE9A' },
+  Workflow: { fg: '#0B5563', bg: '#E4F2F3', border: '#A0D6D9' },
+  Entity: { fg: '#0B5563', bg: '#E4F2F3', border: '#A0D6D9' },
+  Control: { fg: '#9F1239', bg: '#FCE9EE', border: '#F4B8C7' },
+  Derivation: { fg: '#0A6E54', bg: '#E2F4EE', border: '#A9DCCB' },
+  None: { fg: '#41525A', bg: '#EEF2F3', border: '#D2DCDF' },
+  // Legacy effect-name keys (kept for compatibility).
   Hold: { fg: '#92500A', bg: '#FBEFDD', border: '#F0CE9A' },
   Route: { fg: '#0B5563', bg: '#E4F2F3', border: '#A0D6D9' },
   Flag: { fg: '#9F1239', bg: '#FCE9EE', border: '#F4B8C7' },
   Derive: { fg: '#0A6E54', bg: '#E2F4EE', border: '#A9DCCB' },
   Annotate: { fg: '#41525A', bg: '#EEF2F3', border: '#D2DCDF' },
-  None: { fg: '#41525A', bg: '#EEF2F3', border: '#D2DCDF' },
 };
 
 /** Motion timings honoring an editorial, calm cadence. */

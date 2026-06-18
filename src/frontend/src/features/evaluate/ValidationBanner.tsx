@@ -8,6 +8,7 @@ import {
 } from '@fluentui/react-components';
 import { fonts, radius, space } from '../../theme/tokens';
 import type { ValidationBlock } from '../../lib/types/api';
+import { humanizeValidationError } from './validationMessages';
 
 const useStyles = makeStyles({
   list: {
@@ -29,7 +30,11 @@ const useStyles = makeStyles({
     borderRadius: radius.sm,
     backgroundColor: tokens.colorNeutralBackground3,
   },
-  path: { fontFamily: fonts.mono, fontSize: '12px', color: tokens.colorPaletteDarkOrangeForeground1 },
+  path: {
+    fontFamily: fonts.mono,
+    fontSize: '12px',
+    color: tokens.colorPaletteDarkOrangeForeground1,
+  },
   message: { fontSize: '12.5px', color: tokens.colorNeutralForeground2 },
 });
 
@@ -40,8 +45,9 @@ export interface ValidationBannerProps {
 /**
  * A NON-BLOCKING banner that surfaces registry validation findings attached to an evaluation. The
  * decision still ran — the outcomes and trace are shown regardless — so this is a warning, not an
- * error: it tells the author that N facts did not match the registry schema, with the offending
- * paths and the reason. Renders nothing when the facts validated cleanly (or no block was returned).
+ * error: it tells the author that N facts did not match the registry's typed schema, names each
+ * offending path and the expected type in plain language, and reassures that the rules still ran.
+ * Renders nothing when the facts validated cleanly (or no block was returned).
  *
  * The count is announced as text (WCAG 1.4.1: never color alone), and `role="status"` lets assistive
  * tech read it without stealing focus from the result.
@@ -54,21 +60,24 @@ export function ValidationBanner({ validation }: ValidationBannerProps) {
     return null;
   }
 
+  const n = errors.length;
+
   return (
     <MessageBar intent="warning" role="status" data-testid="validation-banner">
       <MessageBarBody>
         <MessageBarTitle>
-          {errors.length} fact{errors.length === 1 ? '' : 's'} did not match the registry schema
+          {n} fact{n === 1 ? '' : 's'} {n === 1 ? "doesn't" : "don't"} match the registry. The rules
+          still ran.
         </MessageBarTitle>
         <Text size={200} as="p">
-          The decision still ran against the active rules. These facts were outside the typed
-          registry — review them so the rule grounds on the intended terms.
+          {n === 1 ? 'This value was' : 'These values were'} outside the typed registry — review{' '}
+          {n === 1 ? 'it' : 'them'} so the rules ground on the intended terms.
         </Text>
         <ul className={styles.list} aria-label="Registry validation findings">
           {errors.map((err, i) => (
             <li key={`${err.path}-${i}`} className={styles.item}>
               <span className={styles.path}>{err.path}</span>
-              <span className={styles.message}>{err.message}</span>
+              <span className={styles.message}>{humanizeValidationError(err)}</span>
             </li>
           ))}
         </ul>
