@@ -68,24 +68,43 @@ on port `4000`.
 The engine entry point evaluates an `EvaluationRequest` and returns an `EvaluationResult`
 (`outcomes`, `trace`, `factsAfter`).
 
-## How to run
+## Install & run
 
-Prerequisites: Node, npm, Docker.
+**Prerequisites:** Node 20+, npm, Docker (for PostgreSQL). (An OpenAI API key is optional — only the live NL interpreter needs it; the offline stub works without it.)
 
 ```bash
-# 1. Postgres — container iaw-postgres on localhost:5433
+# 1. Clone
+git clone https://github.com/beedev/iawvf.git
+cd iawvf
+
+# 2. PostgreSQL — container iaw-postgres on localhost:5433 + the app's dedicated database
 docker compose up -d db
+docker exec iaw-postgres createdb -U iaw iawnode        # the Node app uses database "iawnode"
 
-# 2. Backend — NestJS API on http://localhost:4000 (Swagger at /swagger)
+# 3. Backend — NestJS API on http://localhost:4000 (Swagger at /swagger)
 cd src/server
+cp .env.example .env                                    # set JWT_SECRET (>=16 chars); set OPENAI_* to use the live interpreter
 npm install
-npx prisma migrate dev
-npm run start:dev
+npx prisma migrate deploy                               # apply the schema to iawnode
+npm run start:dev                                       # first boot seeds 8 entities + imports the rule corpus
 
-# 3. Frontend — Vite dev server on http://localhost:5173
-cd src/frontend
+# 4. Frontend — Vite dev server on http://localhost:5173
+cd ../frontend
+cp .env.example .env                                    # VITE_API_BASE_URL=http://localhost:4000
 npm install
 npm run dev
+```
+
+Then open **http://localhost:5173** and sign in with `lead` / `lead-pw` (see Dev login below). The interactive API explorer is at **http://localhost:4000/swagger**; an in-app **API Reference** is in the left nav.
+
+### Running the tests
+
+Tests use an isolated `iawnode_test` database (never the dev `iawnode`):
+
+```bash
+docker exec iaw-postgres createdb -U iaw iawnode_test   # one-time
+cd src/server   && npm test                             # Jest + supertest (engine, registry, API)
+cd src/frontend && npm test                             # Vitest (UI)
 ```
 
 ### Configuration
