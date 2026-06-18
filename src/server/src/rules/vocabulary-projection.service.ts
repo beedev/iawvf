@@ -11,6 +11,12 @@ import { RegistryService } from '../registry/registry.service';
 export interface GroundedSubject {
   path: string;
   dataType: FieldDataType;
+  /**
+   * The closed set of permitted string values for this field, if the registry
+   * declares one (e.g. `specimen.type`, `patient.gender`); empty when the field
+   * is unconstrained. Authoring's type-aware lint (LINT020) consumes this.
+   */
+  allowedValues: string[];
 }
 
 /** The engine/authoring grounding vocabulary, projected from the entity registry. */
@@ -67,6 +73,7 @@ export class VocabularyProjectionService {
         entity.fields.map((field) => ({
           path: `${entity.key}.${field.name}`,
           dataType: field.dataType,
+          allowedValues: [...field.allowedValues],
         })),
       )
       .sort((a, b) => a.path.localeCompare(b.path));
