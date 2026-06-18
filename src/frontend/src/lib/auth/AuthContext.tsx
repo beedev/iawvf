@@ -2,135 +2,112 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
-  useReducer,
+  useRef,
+  useState,
   type ReactNode,
 } from 'react';
-import type {
-  AuthContextValue,
-  AuthState,
-  LoginCredentials,
-} from './types';
+import { configureApi, ApiError } from '../api';
+import { api } from '../api';
+import type { VdfRole } from '../types/api';
 
-// ---------------------------------------------------------------------------
-// State machine
-// ---------------------------------------------------------------------------
+/**
+ * In-memory authentication state. The JWT is held in a React ref (never localStorage / cookies, never
+ * logged) so it is unreachable from persisted XSS vectors and is naturally cleared on reload.
+ */
 
-type AuthAction =
-  | { type: 'LOGIN_START' }
-  | { type: 'LOGIN_SUCCESS'; payload: { user: AuthState['user']; accessToken: string } }
-  | { type: 'LOGIN_ERROR'; payload: { error: string } }
-  | { type: 'LOGOUT' };
-
-const initialState: AuthState = {
-  user: null,
-  accessToken: null,
-  isLoading: false,
-  error: null,
-};
-
-function authReducer(state: AuthState, action: AuthAction): AuthState {
-  switch (action.type) {
-    case 'LOGIN_START':
-      return { ...state, isLoading: true, error: null };
-    case 'LOGIN_SUCCESS':
-      return {
-        ...state,
-        isLoading: false,
-        error: null,
-        user: action.payload.user,
-        accessToken: action.payload.accessToken,
-      };
-    case 'LOGIN_ERROR':
-      return {
-        ...state,
-        isLoading: false,
-        error: action.payload.error,
-        user: null,
-        accessToken: null,
-      };
-    case 'LOGOUT':
-      return initialState;
-    default:
-      return state;
-  }
+export interface AuthSession {
+  username: string;
+  roles: VdfRole[];
+  expiresAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
+interface AuthContextValue {
+  session: AuthSession | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  /** Set when a 401 occurred or login failed; surfaced to the login screen. */
+  error: string | null;
+  /** Authenticate a dev user. The role switcher calls this with a different username. */
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => void;
+  hasRole: (role: VdfRole) => boolean;
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(authReducer, initialState);
+  const tokenRef = useRef<string | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const login = useCallback(async (credentials: LoginCredentials) => {
-    dispatch({ type: 'LOGIN_START' });
+  const clear = useCallback(() => {
+    tokenRef.current = null;
+    setSession(null);
+  }, []);
+
+  // Wire the API client to read the in-memory token and react to 401s exactly once.
+  useEffect(() => {
+    configureApi({
+      getToken: () => tokenRef.current,
+      onUnauthorized: () => {
+        clear();
+        setError('Your session expired. Please sign in again.');
+      },
+    });
+  }, [clear]);
+
+  const login = useCallback(async (username: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Do NOT log the body — it contains credentials.
-        body: JSON.stringify({
-          username: credentials.username,
-          password: credentials.password,
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Login failed (${response.status})`);
-      }
-
-      // Expected shape: { accessToken: string, user: AuthUser }
-      const data = (await response.json()) as {
-        accessToken: string;
-        user: AuthState['user'];
-      };
-
-      if (!data.accessToken || !data.user) {
-        throw new Error('Unexpected response from auth endpoint.');
-      }
-
-      dispatch({
-        type: 'LOGIN_SUCCESS',
-        payload: { user: data.user, accessToken: data.accessToken },
-      });
+      const res = await api.login({ username, password });
+      tokenRef.current = res.token; // memory only
+      setSession({ username, roles: res.roles, expiresAt: res.expiresAt });
     } catch (err) {
+      tokenRef.current = null;
+      setSession(null);
       const message =
-        err instanceof Error ? err.message : 'An unknown error occurred.';
-      dispatch({ type: 'LOGIN_ERROR', payload: { error: message } });
-      throw err; // Re-throw so callers can react if needed.
+        err instanceof ApiError
+          ? err.status === 401
+            ? 'Invalid credentials. Check the username and password.'
+            : err.message
+          : 'Sign-in failed unexpectedly.';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   const logout = useCallback(() => {
-    dispatch({ type: 'LOGOUT' });
-  }, []);
+    clear();
+    setError(null);
+  }, [clear]);
+
+  const hasRole = useCallback((role: VdfRole) => session?.roles.includes(role) ?? false, [session]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, logout }),
-    [state, login, logout],
+    () => ({
+      session,
+      isAuthenticated: session !== null,
+      isLoading,
+      error,
+      login,
+      logout,
+      hasRole,
+    }),
+    [session, isLoading, error, login, logout, hasRole],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used within an <AuthProvider>.');
-  }
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
   return ctx;
 }

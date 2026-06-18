@@ -1,8 +1,2 @@
-export { AuthProvider, useAuth } from './AuthContext';
-export type {
-  AuthUser,
-  AuthState,
-  AuthContextValue,
-  IAWRole,
-  LoginCredentials,
-} from './types';
+export { AuthProvider, useAuth, type AuthSession } from './AuthContext';
+export { DEV_USERS, devUserByUsername, type DevUser } from './devUsers';

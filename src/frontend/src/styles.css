@@ -1,0 +1,107 @@
+/* IAW Decision Framework — global base styles.
+   Fluent's makeStyles handles component styling; this file covers document-level resets,
+   typography defaults, the header atmosphere, and accessibility primitives. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    'Public Sans',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* A characterful, optical serif for display headings — opt classes apply this. */
+.font-display {
+  font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+  font-optical-sizing: auto;
+}
+
+/* Keyboard focus: a clear, branded ring that never relies on color alone. */
+:focus-visible {
+  outline: 2px solid var(--iaw-focus, #0e7c86);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Skip link — visible only when focused. */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #0e7c86;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.18s ease;
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* The subtle gradient-mesh / grid atmosphere behind the page header only. */
+.iaw-header-atmosphere {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(900px 320px at 12% -40%, rgba(14, 124, 134, 0.16), transparent 70%),
+    radial-gradient(700px 260px at 88% -60%, rgba(46, 154, 161, 0.12), transparent 70%),
+    linear-gradient(to right, rgba(14, 124, 134, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(14, 124, 134, 0.05) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    32px 32px,
+    32px 32px;
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+}
+
+/* Custom scrollbars for the clinical, quiet aesthetic. */
+* {
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 120, 125, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 120, 125, 0.55);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
