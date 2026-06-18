@@ -61,12 +61,20 @@ builder.Services.PostConfigure<JwtOptions>(jwt =>
 // reference-data provider with the EF/Postgres implementations.
 builder.Services.AddVdfCore();
 builder.Services.AddVdfPersistence(connectionString);
+builder.Services.AddVdfVocabulary();
 builder.Services.AddVdfAuthoring();
 builder.Services.AddVdfLlmInterpreter(); // live OpenAI; reads OPENAI_* from the environment.
 
-// The default vocabulary catalog (AddVdfCore registers one too, but we register Default() explicitly
-// so the catalog is unambiguous for controllers).
-builder.Services.AddSingleton(VocabularyCatalog.Default());
+// The vocabulary catalog is now DB-backed and refreshable. AddVdfCore registered a singleton
+// Default() via TryAddSingleton; we REMOVE every VocabularyCatalog registration and re-register it as a
+// SCOPED projection of the live provider's Current catalog. Every consumer (AuthoringController, linter,
+// interpreter, engine) therefore grounds against the DB-backed vocabulary, and a RefreshAsync after an
+// admin mutation is observed by the next request. The provider itself is a singleton that reads the DB
+// through a fresh DI scope, so no singleton captures a scoped DbContext (mirrors the captive-dependency
+// fix applied to the linter / dry-run / engine below).
+builder.Services.RemoveAll<VocabularyCatalog>();
+builder.Services.AddScoped(sp =>
+    sp.GetRequiredService<IVocabularyCatalogProvider>().Current);
 
 // ── Lifetime reconciliation (captive-dependency avoidance) ──────────────────────────────────────────
 // AddVdfCore / AddVdfAuthoring register the engine façade and the reference-data-dependent authoring

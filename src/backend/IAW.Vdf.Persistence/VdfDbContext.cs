@@ -27,6 +27,9 @@ public sealed class VdfDbContext : DbContext
     /// <summary>Append-only decision audit traces.</summary>
     public DbSet<DecisionTraceEntity> DecisionTraces => Set<DecisionTraceEntity>();
 
+    /// <summary>Governed vocabulary subjects (user-managed objects/properties).</summary>
+    public DbSet<VocabularySubjectEntity> VocabularySubjects => Set<VocabularySubjectEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -36,5 +39,6 @@ public sealed class VdfDbContext : DbContext
         modelBuilder.ApplyConfiguration(new RuleVersionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ReferenceDataEntityConfiguration());
         modelBuilder.ApplyConfiguration(new DecisionTraceEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new VocabularySubjectEntityConfiguration());
     }
 }
