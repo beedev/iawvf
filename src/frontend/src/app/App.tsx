@@ -24,6 +24,9 @@ const EvaluatePage = lazy(() =>
 const VocabularyPage = lazy(() =>
   import('../features/vocabulary/VocabularyPage').then((m) => ({ default: m.VocabularyPage })),
 );
+const ApiReferencePage = lazy(() =>
+  import('../features/api-docs/ApiReferencePage').then((m) => ({ default: m.ApiReferencePage })),
+);
 
 /**
  * Guards an Admin-only route. A non-admin who navigates here directly (e.g. a bookmarked URL) sees a
@@ -60,6 +63,7 @@ function AuthenticatedApp() {
               </AdminRoute>
             }
           />
+          <Route path="/api-docs" element={<ApiReferencePage />} />
           <Route path="*" element={<Navigate to="/authoring" replace />} />
         </Routes>
       </Suspense>

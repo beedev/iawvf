@@ -28,6 +28,8 @@ import {
   PlayCircleFilled,
   BookRegular,
   BookFilled,
+  CodeRegular,
+  CodeFilled,
   SignOutRegular,
   PersonRegular,
 } from '@fluentui/react-icons';
@@ -227,6 +229,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: <BookRegular />,
     iconActive: <BookFilled />,
     adminOnly: true,
+  },
+  {
+    to: '/api-docs',
+    label: 'API Reference',
+    hint: 'REST endpoints, live spec',
+    icon: <CodeRegular />,
+    iconActive: <CodeFilled />,
   },
 ];
 
