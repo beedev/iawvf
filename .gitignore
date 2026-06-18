@@ -16,6 +16,8 @@ test-results/
 # Env / secrets
 .env
 .env.*
+!.env.example
+!**/.env.example
 *.pem
 
 # OS

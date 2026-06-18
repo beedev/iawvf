@@ -1,0 +1,22 @@
+// IAW VDF (Node) — Prisma schema.
+// N0 foundation: a single minimal model to prove migrations work against `iawnode`.
+// Real domain models (entity registry, engine, etc.) are added in later modules.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Lightweight liveness marker used to prove the DB is reachable and migratable.
+/// Not part of the domain model — exists only so the initial migration creates a table.
+model HealthPing {
+  id        String   @id @default(uuid()) @db.Uuid
+  note      String   @default("ok")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("health_ping")
+}
