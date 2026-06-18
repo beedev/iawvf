@@ -69,10 +69,12 @@ public sealed class AuthoringController : ControllerBase
         catch (InvalidOperationException ex)
         {
             // Interpreter disabled / no key configured — degrade gracefully, never 500.
+            // M1: never leak ex.Message to the client (it can disclose internal config); the full
+            // message is logged server-side below for operators.
             _logger.LogWarning("Interpreter unavailable: {Message}", ex.Message);
             return Problem(
                 title: "The rule interpreter is currently unavailable.",
-                detail: ex.Message,
+                detail: "The rule interpreter is currently unavailable. Contact your administrator if this persists.",
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
 

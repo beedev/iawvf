@@ -135,8 +135,14 @@ public sealed class RulesController : ControllerBase
         [FromBody] ApproveRequest request,
         CancellationToken cancellationToken)
     {
+        // Audit integrity (H1): the approval identity is the AUTHENTICATED principal, never the
+        // caller-supplied request body. request.Approver is ignored for the persisted audit identity
+        // (it remains in the DTO only as an optional display hint).
+        var approver = User.Identity?.Name
+            ?? throw new InvalidOperationException("Authenticated principal has no name claim.");
+
         var (status, version) = await _governance
-            .ApproveActiveVersionAsync(key, request.Approver, cancellationToken)
+            .ApproveActiveVersionAsync(key, approver, cancellationToken)
             .ConfigureAwait(false);
 
         if (status != GovernanceStatus.Succeeded)
@@ -146,8 +152,8 @@ public sealed class RulesController : ControllerBase
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        _logger.LogInformation("Rule {Key} v{Version} approved by {Approver} (principal {User}).",
-            key, version, request.Approver, User.Identity?.Name ?? "anonymous");
+        _logger.LogInformation("Rule {Key} v{Version} approved by {Approver}.",
+            key, version, approver);
 
         return Ok(new RuleMutationResponse
         {

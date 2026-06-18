@@ -11,6 +11,7 @@ public sealed class InterpretRequest
 {
     /// <summary>The author's plain-English rule.</summary>
     [Required]
+    [MaxLength(4000)] // M3: bound LLM input size to curb cost / DoS via oversized prompts.
     public string NaturalLanguage { get; set; } = string.Empty;
 }
 

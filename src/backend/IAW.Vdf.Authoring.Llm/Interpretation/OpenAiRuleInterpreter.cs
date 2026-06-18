@@ -25,6 +25,9 @@ public sealed class OpenAiRuleInterpreter : IRuleInterpreter
     /// </summary>
     public const string InterpreterVersion = "openai-rule-interpreter/1.0.0";
 
+    /// <summary>Maximum accepted natural-language input length (M3: LLM cost / DoS guard).</summary>
+    private const int MaxNaturalLanguageLength = 4000;
+
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
     private readonly IReferenceDataProvider _references;
@@ -58,6 +61,14 @@ public sealed class OpenAiRuleInterpreter : IRuleInterpreter
         ArgumentNullException.ThrowIfNull(vocabulary);
         if (string.IsNullOrWhiteSpace(naturalLanguage))
             throw new ArgumentException("Natural-language rule text must be provided.", nameof(naturalLanguage));
+
+        // M3: defence-in-depth length guard so the model is never called with an oversized prompt
+        // (LLM cost / DoS). The API DTO ([MaxLength(4000)]) rejects most cases first; this protects
+        // any non-HTTP caller (Demo / direct use).
+        if (naturalLanguage.Length > MaxNaturalLanguageLength)
+            throw new ArgumentException(
+                $"Natural-language rule text exceeds the maximum of {MaxNaturalLanguageLength} characters.",
+                nameof(naturalLanguage));
 
         if (!_options.Enabled)
             throw new InvalidOperationException("The OpenAI interpreter is disabled (OPENAI_ENABLED=false). Fall back to the offline stub interpreter.");

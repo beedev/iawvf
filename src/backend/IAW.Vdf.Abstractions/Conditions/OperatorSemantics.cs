@@ -181,7 +181,18 @@ public static class OperatorSemantics
 
         try
         {
-            return System.Text.RegularExpressions.Regex.IsMatch(subject, pattern);
+            // ReDoS guard (H3): bound matching time so a pathological pattern/input cannot hang the
+            // engine. A timeout is treated as no-match.
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                subject,
+                pattern,
+                System.Text.RegularExpressions.RegexOptions.None,
+                TimeSpan.FromMilliseconds(100));
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            // Match exceeded the time budget — treat as no-match.
+            return false;
         }
         catch (ArgumentException)
         {

@@ -120,8 +120,11 @@ public sealed class AddVersionRequest
 /// <summary>Request to approve the active version of a rule.</summary>
 public sealed class ApproveRequest
 {
-    /// <summary>The approving principal's identifier.</summary>
-    [Required]
+    /// <summary>
+    /// Optional, display-only approver hint. The persisted audit identity (ApprovedBy) is always the
+    /// authenticated principal (JWT name claim), not this field — see H1. Retained for backward
+    /// compatibility and human-readable request context only.
+    /// </summary>
     public string Approver { get; set; } = string.Empty;
 }
 

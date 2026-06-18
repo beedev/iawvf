@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using IAW.Vdf.Api.Auth;
 using IAW.Vdf.Api.Governance;
 using IAW.Vdf.Api.Infrastructure;
@@ -13,6 +14,8 @@ using IAW.Vdf.Core.DependencyInjection;
 using IAW.Vdf.Core.Engine;
 using IAW.Vdf.Persistence.DependencyInjection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -26,10 +29,32 @@ DotEnv.LoadFromAncestors(overrideExisting: false);
 var builder = WebApplication.CreateBuilder(args);
 
 // ── Configuration ──────────────────────────────────────────────────────────────────────────────────
+// Connection string (H4): the localhost dev fallback is permitted ONLY in Development. In any other
+// environment a missing ConnectionStrings:VdfDb is a fail-fast — never silently use hardcoded creds.
 var connectionString = builder.Configuration.GetConnectionString("VdfDb")
-    ?? "Host=localhost;Port=5433;Database=iaw;Username=iaw;Password=iaw";
+    ?? (builder.Environment.IsDevelopment()
+        ? "Host=localhost;Port=5433;Database=iaw;Username=iaw;Password=iaw"
+        : throw new InvalidOperationException(
+            "ConnectionStrings:VdfDb is required in non-Development environments."));
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+
+// ── JWT signing-key resolution + STARTUP fail-fast ─────────────────────────────────────────────────
+// The signing key MUST be present for the token surface to be sound, and a missing key must be a clear
+// FAIL-FAST at STARTUP — never a per-request 500 that would also take down anonymous endpoints
+// (/health, /swagger, /api/auth/login).
+//   • Production / non-Development: Jwt:Key is REQUIRED; absence throws during app build (see below).
+//   • Development: a deterministic dev key is supplied if none is configured, so the local dev surface
+//     (and Swagger) always works without secrets. The real dev key still lives in
+//     appsettings.Development.json and takes precedence when present.
+//
+// We apply the policy as a PostConfigure on JwtOptions (so it observes the fully-assembled
+// configuration, including any late in-memory sources a host injects), and trip the fail-fast once at
+// startup by resolving the options right after the host is built — BEFORE any request is served.
+// (Policy lives in JwtSigningKeyResolver so it is unit-testable without a full host.)
+var isDevelopment = builder.Environment.IsDevelopment();
+builder.Services.PostConfigure<JwtOptions>(jwt =>
+    jwt.Key = JwtSigningKeyResolver.Resolve(jwt.Key, isDevelopment));
 
 // ── VDF domain services ───────────────────────────────────────────────────────────────────────────
 // Order matters: core registers in-memory defaults via TryAdd; persistence overrides the repository and
@@ -91,14 +116,11 @@ builder.Services
     .Configure<IOptions<JwtOptions>>((bearer, jwtOptionsAccessor) =>
     {
         var jwt = jwtOptionsAccessor.Value;
-        if (string.IsNullOrWhiteSpace(jwt.Key))
-        {
-            // Fail fast rather than start with an unsigned token surface. The dev key lives in
-            // appsettings.Development.json; production must supply Jwt:Key via env / secret store.
-            throw new InvalidOperationException(
-                "No JWT signing key configured (Jwt:Key). Provide one via configuration or environment.");
-        }
 
+        // jwt.Key was resolved by the PostConfigure<JwtOptions> policy (dev fallback or required key),
+        // and the startup fail-fast guarantees a non-empty key in any successfully-started host. So this
+        // delegate never throws — anonymous endpoints (/health, /swagger, /api/auth/login) never incur a
+        // 500 from JWT options binding.
         bearer.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -107,7 +129,7 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwt.Issuer,
             ValidAudience = jwt.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key!)),
             ClockSkew = TimeSpan.FromSeconds(30),
         };
     });
@@ -154,13 +176,21 @@ builder.Services.AddCors(options =>
     options.AddPolicy(CorsPolicy, p => p
         .WithOrigins(allowedOrigins)
         .AllowAnyHeader()
-        .AllowAnyMethod()));
+        // M4: restrict to the methods the UI actually uses rather than allowing any verb.
+        .WithMethods("GET", "POST", "OPTIONS")));
 
 // Health checks: liveness + Postgres connectivity.
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString, name: "postgres");
 
 var app = builder.Build();
+
+// ── STARTUP fail-fast: JWT signing key ──────────────────────────────────────────────────────────────
+// Resolve JwtOptions once now, before any request is served. The PostConfigure policy either supplies
+// the Development fallback or (in non-Development) throws InvalidOperationException for a missing key —
+// surfacing the error at startup rather than as a per-request 500. Reading the options here observes the
+// fully-assembled configuration (including any host-injected sources).
+_ = app.Services.GetRequiredService<IOptions<JwtOptions>>().Value;
 
 // ── HTTP pipeline ─────────────────────────────────────────────────────────────────────────────────
 // Global exception → RFC7807 ProblemDetails (no stack traces / secrets to clients).
@@ -176,7 +206,26 @@ app.UseCors(CorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health").AllowAnonymous();
+// M2: custom response writer that emits only status + per-check name/status — never the exception or
+// description, which could disclose internal detail (e.g. connection-string fragments) to anonymous
+// callers.
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = static async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var payload = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+            }),
+        };
+        await context.Response.WriteAsync(JsonSerializer.Serialize(payload)).ConfigureAwait(false);
+    },
+}).AllowAnonymous();
 app.MapControllers();
 
 app.Run();
