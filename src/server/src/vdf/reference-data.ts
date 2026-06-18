@@ -16,6 +16,13 @@ export interface ReferenceDataProvider {
   resolve(key: string): JsonValue | null;
   /** Tries to resolve a key. Returns `{ found, value }` so callers can distinguish present-null. */
   tryResolve(key: string): { found: boolean; value: JsonValue | null };
+  /**
+   * The legal top-level reference keys (sorted). Used by the LLM grounding prompt
+   * to enumerate the reference vocabulary the model may cite. These are the
+   * source-level keys (e.g. `PolicyThresholds`, `TestCompendium.nyValidation`); the
+   * resolver additionally walks dotted paths beneath them at evaluation time.
+   */
+  referenceKeys(): string[];
 }
 
 function isPlainObject(node: JsonValue | undefined): node is JsonObject {
@@ -84,5 +91,9 @@ export class JsonReferenceDataProvider implements ReferenceDataProvider {
   resolve(key: string): JsonValue | null {
     const { found, value } = this.tryResolve(key);
     return found ? value : null;
+  }
+
+  referenceKeys(): string[] {
+    return Object.keys(this.root).sort((a, b) => a.localeCompare(b));
   }
 }

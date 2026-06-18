@@ -40,6 +40,10 @@ export class DbReferenceDataProvider implements ReferenceDataProvider {
   tryResolve(key: string): { found: boolean; value: JsonValue | null } {
     return this.delegate.tryResolve(key);
   }
+
+  referenceKeys(): string[] {
+    return this.delegate.referenceKeys();
+  }
 }
 
 /** Loads the reference-data document from Postgres into a DB-backed provider. */
