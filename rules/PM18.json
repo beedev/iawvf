@@ -1,0 +1,29 @@
+{
+  "key": "PM18",
+  "name": "STAT escalation contact required",
+  "description": "When a test is ordered at STAT priority, an escalation contact must be recorded on the order.",
+  "priority": 14,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "test.priority",
+    "operator": "Equals",
+    "value": "STAT"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "order.statContactInfo",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "PartialHold",
+    "scope": "test",
+    "reason": "STAT testing requires escalation contact information"
+  }
+}

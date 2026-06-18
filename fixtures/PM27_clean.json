@@ -1,0 +1,7 @@
+{
+  "test": { "code": "FLG", "orderedTest": "FLG" },
+  "specimen": { "type": "PeripheralBlood", "bodySite": "PeripheralBlood", "age": 2 },
+  "patient": { "age": 50, "gender": "Male" },
+  "document": { "cbc": "cbc-report-001" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

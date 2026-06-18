@@ -1,0 +1,38 @@
+{
+  "key": "BL21",
+  "name": "Derive body site for Peripheral Blood specimens",
+  "description": "When the specimen type is Peripheral Blood and no body site is recorded, stamp the body site as Peripheral Blood. A degenerate (derivation) rule: it applies only when the body site is absent and produces the derived value.",
+  "priority": 6,
+  "phase": "Derive",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "group",
+    "logicalOp": "All",
+    "conditions": [
+      {
+        "type": "leaf",
+        "subject": "specimen.type",
+        "operator": "Equals",
+        "value": "PeripheralBlood"
+      },
+      {
+        "type": "leaf",
+        "subject": "specimen.bodySite",
+        "operator": "IsAbsent"
+      }
+    ]
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "SetValue",
+    "reason": "Body site defaulted to Peripheral Blood",
+    "parameters": {
+      "Target": "specimen.bodySite",
+      "Value": "PeripheralBlood"
+    }
+  }
+}

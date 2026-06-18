@@ -1,0 +1,6 @@
+{
+  "test": { "code": "NGS-P-001", "orderedTest": "NGS-P-001", "priority": "STAT" },
+  "specimen": { "type": "FreshTissue", "age": 2 },
+  "patient": { "age": 50, "gender": "Male" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "statContactInfo": "Dr. Smith +1-555-0100", "specimens": [ {} ] }
+}

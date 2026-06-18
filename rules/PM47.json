@@ -1,0 +1,29 @@
+{
+  "key": "PM47",
+  "name": "Discharge date required for hospital inpatient specimens",
+  "description": "When the specimen originates from a hospital inpatient setting, the discharge date must be recorded on the order.",
+  "priority": 18,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "specimen.origin",
+    "operator": "Equals",
+    "value": "HospitalInpatient"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "order.dischargeDate",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "PartialHold",
+    "scope": "test",
+    "reason": "Discharge date required for hospital inpatient specimen"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "key": "PM19",
+  "name": "Client specimen ID required for FFPE specimens",
+  "description": "When the specimen type is FFPE, the client specimen identifier must be present.",
+  "priority": 12,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "specimen.type",
+    "operator": "Equals",
+    "value": "FFPE"
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "specimen.clientSpecimenId",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "CompleteHold",
+    "scope": "order",
+    "reason": "Client specimen ID missing for FFPE specimen"
+  }
+}

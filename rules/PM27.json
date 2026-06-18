@@ -1,0 +1,29 @@
+{
+  "key": "PM27",
+  "name": "CBC document required for FLG/MRP testing",
+  "description": "When the ordered test code is FLG or MRP, a CBC document must be present.",
+  "priority": 16,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "test.code",
+    "operator": "InSet",
+    "value": ["FLG", "MRP"]
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "document.cbc",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "PartialHold",
+    "scope": "test",
+    "reason": "CBC document required for FLG/MRP testing"
+  }
+}

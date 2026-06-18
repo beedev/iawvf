@@ -1,0 +1,6 @@
+{
+  "test": { "code": "GlobalFFPE", "orderedTest": "GlobalFFPE" },
+  "specimen": { "type": "FFPE", "age": 10, "fixationTime": 24, "clientSpecimenId": "CSID-002" },
+  "patient": { "age": 55, "gender": "Female" },
+  "order": { "client": { "nyStatus": "Standard" }, "performingLab": "Lab-NY-1", "specimens": [ {} ] }
+}

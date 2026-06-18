@@ -54,6 +54,13 @@ const FIRES_TABLE: ReadonlyArray<[string, OutcomeType]> = [
   ['PM49_DECISION', 'CompleteHold'],
   ['BL33_CROSS', 'CompleteHold'],
   ['BL38_MULTI', 'CreatePlaceholder'],
+  // Newly mined rules (N-stack additions).
+  ['PM19', 'CompleteHold'],
+  ['PM18', 'PartialHold'],
+  ['PM27', 'PartialHold'],
+  ['PM28', 'PartialHold'],
+  ['PM47', 'PartialHold'],
+  ['BL21', 'SetValue'],
 ];
 
 // The .NET clean-fixture table (BL3/BL20 are derivation rules with no _clean entry
@@ -71,6 +78,15 @@ const CLEAN_KEYS: ReadonlyArray<string> = [
   'PM49_DECISION',
   'BL33_CROSS',
   'BL38_MULTI',
+  // Newly mined rules. BL21 is a derivation rule (SetValue is not a failure outcome),
+  // and its _clean fixture supplies a body site so the rule does not apply — either
+  // way it produces no failure outcome.
+  'PM19',
+  'PM18',
+  'PM27',
+  'PM28',
+  'PM47',
+  'BL21',
 ];
 
 const FAILURE_TYPES: ReadonlyArray<OutcomeType> = [

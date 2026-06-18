@@ -45,6 +45,8 @@ export const CANONICAL_ENTITIES: readonly SeedEntity[] = [
       { name: 'client.nyStatus', dataType: FieldDataType.String },
       { name: 'performingLab', dataType: FieldDataType.String },
       { name: 'qualifyingInitialOrder', dataType: FieldDataType.String },
+      { name: 'statContactInfo', dataType: FieldDataType.String },
+      { name: 'dischargeDate', dataType: FieldDataType.Date },
       { name: 'tests[]', dataType: FieldDataType.Collection },
       { name: 'specimens[]', dataType: FieldDataType.Collection },
     ],
@@ -82,6 +84,18 @@ export const CANONICAL_ENTITIES: readonly SeedEntity[] = [
       { name: 'bodySite', dataType: FieldDataType.String },
       { name: 'archiveRetrievalDate', dataType: FieldDataType.Date },
       { name: 'fixationTime', dataType: FieldDataType.Number },
+      { name: 'clientSpecimenId', dataType: FieldDataType.String },
+      {
+        name: 'origin',
+        dataType: FieldDataType.String,
+        allowedValues: [
+          'HospitalInpatient',
+          'HospitalOutpatient',
+          'Clinic',
+          'Reference',
+          'Unknown',
+        ],
+      },
     ],
   },
   {
@@ -99,7 +113,11 @@ export const CANONICAL_ENTITIES: readonly SeedEntity[] = [
   {
     key: 'document',
     description: 'A document accompanying an order or specimen.',
-    fields: [{ name: 'circledHE', dataType: FieldDataType.String }],
+    fields: [
+      { name: 'circledHE', dataType: FieldDataType.String },
+      { name: 'cbc', dataType: FieldDataType.String },
+      { name: 'pathologyReport', dataType: FieldDataType.String },
+    ],
   },
   {
     key: 'incident',

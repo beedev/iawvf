@@ -1,0 +1,29 @@
+{
+  "key": "PM28",
+  "name": "Pathology report required for Global FFPE / PanTracer Pro testing",
+  "description": "When the ordered test code is GlobalFFPE or PanTracerPro, a pathology report must be present.",
+  "priority": 16,
+  "phase": "Validate",
+  "enabled": true,
+  "version": 1,
+  "effectiveDate": "0001-01-01T00:00:00+00:00",
+  "appliesWhen": {
+    "type": "leaf",
+    "subject": "test.code",
+    "operator": "InSet",
+    "value": ["GlobalFFPE", "PanTracerPro"]
+  },
+  "assert": {
+    "type": "leaf",
+    "subject": "document.pathologyReport",
+    "operator": "IsPresent"
+  },
+  "onSuccess": {
+    "type": "Continue"
+  },
+  "onFailure": {
+    "type": "PartialHold",
+    "scope": "test",
+    "reason": "Pathology report required for Global FFPE / PanTracer Pro testing"
+  }
+}
