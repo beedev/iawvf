@@ -231,6 +231,8 @@ export interface ConditionTrace {
 
 export interface DecisionTrace {
   ruleKey: string;
+  /** Human-readable rule name (e.g. "Circled H&E required for Technical FISH on FFPE"), or null when unknown. */
+  ruleName?: string | null;
   version: number;
   phase: string;
   applied: boolean;

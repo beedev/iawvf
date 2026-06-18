@@ -28,6 +28,7 @@ const useStyles = makeStyles({
     minWidth: 0,
   },
   ruleKey: { fontFamily: fonts.mono, fontWeight: 500, color: tokens.colorBrandForeground1 },
+  ruleName: { fontWeight: 600, color: tokens.colorNeutralForeground1, minWidth: 0 },
   phase: {
     fontSize: '11px',
     fontWeight: 600,
@@ -86,6 +87,7 @@ export function DecisionTracePanel({ trace }: { trace: DecisionTrace[] }) {
           <AccordionHeader>
             <div className={styles.headerInner}>
               <span className={styles.ruleKey}>{t.ruleKey}</span>
+              {t.ruleName && <span className={styles.ruleName}>{t.ruleName}</span>}
               <span className={styles.phase}>{t.phase}</span>
               {t.applied ? (
                 <StatusBadge kind="info">Applied</StatusBadge>
