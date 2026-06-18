@@ -3,9 +3,10 @@
  *
  * Subjects come from the N3 {@link VocabularyProjectionService} (registry-projected
  * Active `entity.field` paths + types + allowedValues). Operators and outcomes are
- * the engine's static closed enums (mirrors the serializer). Reference keys come from
- * the DB-backed reference provider. This is the single seam that guarantees the model
- * is grounded in exactly what the deterministic gate will later validate against.
+ * the engine's static closed enums ({@link OPERATORS} / {@link OUTCOMES}). Reference
+ * keys come from the DB-backed reference provider. This is the single seam that
+ * guarantees the model is grounded in exactly what the deterministic gate will later
+ * validate against.
  */
 
 import { Injectable } from '@nestjs/common';
@@ -13,48 +14,11 @@ import { Injectable } from '@nestjs/common';
 import { GroundingVocabulary } from './interpreter';
 
 import { DbReferenceDataLoader } from '../../rules/db-reference-data.provider';
-import { VocabularyProjectionService } from '../../rules/vocabulary-projection.service';
-import { OperatorKind, OutcomeType } from '../../vdf/types';
-
-/** The engine's closed operator vocabulary (mirrors {@link OperatorKind}). */
-const OPERATORS: readonly OperatorKind[] = [
-  'IsPresent',
-  'IsAbsent',
-  'Equals',
-  'NotEquals',
-  'InSet',
-  'NotInSet',
-  'GreaterThan',
-  'LessThan',
-  'GreaterOrEqual',
-  'LessOrEqual',
-  'WithinRange',
-  'Matches',
-  'IsCompatibleWith',
-  'IsEligibleFor',
-  'Exists',
-];
-
-/** The engine's closed outcome vocabulary (mirrors {@link OutcomeType}). */
-const OUTCOMES: readonly OutcomeType[] = [
-  'Continue',
-  'Suppressed',
-  'CompleteHold',
-  'PartialHold',
-  'Warning',
-  'ComplianceAlert',
-  'RouteToReview',
-  'RouteToQueue',
-  'Escalate',
-  'SetValue',
-  'ApplyDefault',
-  'CalculateValue',
-  'CreatePlaceholder',
-  'CreateIncident',
-  'CreateTask',
-  'PreventAction',
-  'AllowAction',
-];
+import {
+  GroundedSubject,
+  VocabularyProjectionService,
+} from '../../rules/vocabulary-projection.service';
+import { OPERATORS, OUTCOMES } from '../../vdf/vocabulary.constants';
 
 @Injectable()
 export class LlmGroundingService {
@@ -69,11 +33,30 @@ export class LlmGroundingService {
       this.vocabulary.project(),
       this.referenceLoader.load(),
     ]);
+    return this.assemble(projection.subjects, references.referenceKeys());
+  }
+
+  /**
+   * Builds a grounding vocabulary narrowed to {@link subjects} (a registry-projected
+   * subset). Operators, outcomes, and reference keys remain the full engine set —
+   * only the SUBJECT surface is scoped (mirrors the .NET scoped-interpret semantics).
+   */
+  async buildScoped(
+    subjects: readonly GroundedSubject[],
+  ): Promise<GroundingVocabulary> {
+    const references = await this.referenceLoader.load();
+    return this.assemble(subjects, references.referenceKeys());
+  }
+
+  private assemble(
+    subjects: readonly GroundedSubject[],
+    references: readonly string[],
+  ): GroundingVocabulary {
     return {
-      subjects: projection.subjects,
+      subjects,
       operators: OPERATORS,
       outcomes: OUTCOMES,
-      references: references.referenceKeys(),
+      references,
     };
   }
 }

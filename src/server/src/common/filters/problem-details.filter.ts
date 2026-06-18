@@ -20,6 +20,12 @@ interface ProblemDetails {
   traceId: string;
 }
 
+/** The shape the rules controller returns on a 422 lint rejection. */
+interface LintReportLike {
+  isValid: boolean;
+  findings: unknown[];
+}
+
 /**
  * Global exception filter that converts every error into an RFC 7807
  * problem+json response.
@@ -30,6 +36,12 @@ interface ProblemDetails {
  *  - For 4xx HttpExceptions the (safe, developer-authored) message is surfaced
  *    so clients get actionable validation feedback.
  *  - A per-request traceId correlates the client-visible error with server logs.
+ *
+ * Contract carve-out: a 422 whose body is a {@link LintReportLike} (the governed
+ * rules controller's lint-rejection payload) is returned VERBATIM as
+ * application/json — not reshaped into problem+json — so the React UI client can
+ * detect a lint rejection and render the findings. This matches the .NET surface,
+ * where `UnprocessableEntity(LintReportDto)` returns the report directly.
  */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
@@ -40,6 +52,19 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
     const traceId = this.resolveTraceId(request);
+
+    // Pass a 422 LintReport body straight through (the UI's lint-rejection contract).
+    const lintReport = this.lintRejectionBody(exception);
+    if (lintReport !== null) {
+      this.logger.warn(
+        `[${traceId}] ${request.method} ${request.url} -> 422 (lint rejection)`,
+      );
+      response
+        .status(HttpStatus.UNPROCESSABLE_ENTITY)
+        .setHeader('Content-Type', 'application/json')
+        .json(lintReport);
+      return;
+    }
 
     const { status, title, detail } = this.normalize(exception);
 
@@ -68,6 +93,30 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       .status(status)
       .setHeader('Content-Type', 'application/problem+json')
       .json(problem);
+  }
+
+  /**
+   * Returns the LintReport body when the exception is a 422 HttpException whose
+   * response payload is a `{ isValid, findings[] }` object; otherwise null.
+   */
+  private lintRejectionBody(exception: unknown): LintReportLike | null {
+    if (
+      !(exception instanceof HttpException) ||
+      exception.getStatus() !== 422
+    ) {
+      return null;
+    }
+    const body = exception.getResponse();
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'isValid' in body &&
+      'findings' in body &&
+      Array.isArray((body as { findings: unknown }).findings)
+    ) {
+      return body as LintReportLike;
+    }
+    return null;
   }
 
   private resolveTraceId(request: Request): string {

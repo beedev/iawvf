@@ -233,5 +233,32 @@ export function ruleFromObject(node: unknown): RuleDefinition {
     rule.recover = parseRecovery(obj.recover);
   }
 
+  // Authored scope (governance metadata): preserve verbatim so it round-trips through
+  // save/get. Tolerant of a partial scope (only objects or only properties).
+  const scope = parseScope(obj.scope);
+  if (scope !== undefined) {
+    rule.scope = scope;
+  }
+
   return rule;
+}
+
+/** Parses an authored scope block, defaulting each arm to an empty list; absent => undefined. */
+function parseScope(
+  node: unknown,
+): { objects: string[]; properties: string[] } | undefined {
+  if (typeof node !== 'object' || node === null || Array.isArray(node)) {
+    return undefined;
+  }
+  const obj = node as Record<string, unknown>;
+  const toStrings = (v: unknown): string[] | null =>
+    Array.isArray(v)
+      ? v.filter((x): x is string => typeof x === 'string')
+      : null;
+  const objects = toStrings(obj.objects);
+  const properties = toStrings(obj.properties);
+  if (objects === null && properties === null) {
+    return undefined;
+  }
+  return { objects: objects ?? [], properties: properties ?? [] };
 }

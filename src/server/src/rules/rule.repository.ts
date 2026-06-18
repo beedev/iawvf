@@ -11,6 +11,19 @@ export interface SaveRuleOptions {
   authoredBy: string;
 }
 
+/** Governance metadata for a rule's currently-active version (for the detail view). */
+export interface ActiveVersionMetadata {
+  version: number;
+  authoredBy: string | null;
+  authorNl: string | null;
+  interpreterVersion: string | null;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+}
+
+/** The outcome of a governance mutation that targets an existing rule by key. */
+export type GovernanceStatus = 'Succeeded' | 'RuleNotFound' | 'NoActiveVersion';
+
 /**
  * The .NET MinValue sentinel (year 0001) the serializer emits when a rule has no
  * effective date. Treated as "always effective" by the selector. We store it as a
@@ -108,22 +121,45 @@ export class RuleRepository {
   }
 
   /**
+   * Returns the governance metadata for a rule's currently-active version (authoring
+   * provenance + approval audit), or null when the rule has no active version. Powers
+   * the detail view's provenance block.
+   */
+  async getActiveVersionMetadata(
+    key: string,
+  ): Promise<ActiveVersionMetadata | null> {
+    const active = await this.prisma.ruleVersion.findFirst({
+      where: { isActive: true, rule: { ruleKey: key } },
+      orderBy: { version: 'desc' },
+      select: {
+        version: true,
+        authoredBy: true,
+        authorNl: true,
+        interpreterVersion: true,
+        approvedBy: true,
+        approvedAt: true,
+      },
+    });
+    return active;
+  }
+
+  /**
    * Upserts a rule: creates/updates the {@link Rule} identity row, then appends the
    * next {@link RuleVersion} (serializing the full body to JSONB) honouring the
    * effective-dating rules above. Runs in a transaction so the supersede + insert
-   * are atomic.
+   * are atomic. Returns the version number written.
    */
   async saveAsync(
     rule: RuleDefinition,
     options: SaveRuleOptions,
-  ): Promise<void> {
+  ): Promise<number> {
     const now = new Date();
     const effectiveDate = this.parseEffective(rule.effectiveDate);
     const expiryDate =
       rule.expiryDate !== undefined ? new Date(rule.expiryDate) : null;
     const isImmediatelyEffective = effectiveDate <= now;
 
-    await this.prisma.$transaction(async (tx) => {
+    const nextVersion = await this.prisma.$transaction(async (tx) => {
       const ruleRow = await tx.rule.upsert({
         where: { ruleKey: rule.key },
         create: {
@@ -146,7 +182,7 @@ export class RuleRepository {
         include: { versions: true },
       });
 
-      const nextVersion =
+      const version =
         ruleRow.versions.reduce((max, v) => Math.max(max, v.version), 0) + 1;
 
       if (isImmediatelyEffective) {
@@ -159,7 +195,7 @@ export class RuleRepository {
       await tx.ruleVersion.create({
         data: {
           ruleId: ruleRow.id,
-          version: nextVersion,
+          version,
           effectiveDate,
           expiryDate,
           // The compiled RuleDefinition is itself a plain JSON-serializable object;
@@ -172,24 +208,31 @@ export class RuleRepository {
           isActive: isImmediatelyEffective,
         },
       });
+
+      return version;
     });
 
     this.logger.log(
-      `Saved rule '${rule.key}' v${(await this.currentVersion(rule.key)) ?? '?'} by ${options.authoredBy}.`,
+      `Saved rule '${rule.key}' v${nextVersion} by ${options.authoredBy}.`,
     );
+    return nextVersion;
   }
 
   /**
    * Governance: approves the currently-active version of a rule, recording the
-   * approver and timestamp. Throws if the rule has no active version.
+   * approver and timestamp. Returns {@link GovernanceStatus} so callers can map a
+   * missing active version to a 404 rather than a 500.
    */
-  async approve(key: string, approver: string): Promise<void> {
+  async approve(
+    key: string,
+    approver: string,
+  ): Promise<{ status: GovernanceStatus; version: number | null }> {
     const active = await this.prisma.ruleVersion.findFirst({
       where: { isActive: true, rule: { ruleKey: key } },
       orderBy: { version: 'desc' },
     });
     if (active === null) {
-      throw new Error(`No active version to approve for rule '${key}'.`);
+      return { status: 'NoActiveVersion', version: null };
     }
     await this.prisma.ruleVersion.update({
       where: { id: active.id },
@@ -198,18 +241,27 @@ export class RuleRepository {
     this.logger.log(
       `Approved rule '${key}' v${active.version} by ${approver}.`,
     );
+    return { status: 'Succeeded', version: active.version };
+  }
+
+  /**
+   * Governance: enables (promote) or disables a rule by key. Disabled rules are
+   * excluded from {@link getActiveRulesAsync}. Returns {@link GovernanceStatus} so a
+   * missing rule maps to a 404.
+   */
+  async setEnabled(key: string, enabled: boolean): Promise<GovernanceStatus> {
+    const rule = await this.prisma.rule.findUnique({ where: { ruleKey: key } });
+    if (rule === null) {
+      return 'RuleNotFound';
+    }
+    await this.prisma.rule.update({
+      where: { ruleKey: key },
+      data: { enabled },
+    });
+    return 'Succeeded';
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
-
-  private async currentVersion(key: string): Promise<number | undefined> {
-    const v = await this.prisma.ruleVersion.findFirst({
-      where: { isActive: true, rule: { ruleKey: key } },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    });
-    return v?.version;
-  }
 
   /**
    * Deserializes the JSONB body back into a {@link RuleDefinition} and merges the

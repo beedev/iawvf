@@ -145,6 +145,12 @@ export interface RuleDefinition {
   onSuccess: Outcome;
   recover?: RecoveryStrategy;
   onFailure: Outcome;
+  /**
+   * The author's deliberate scope selection (governance metadata; the engine does not
+   * evaluate it). Round-trips verbatim through save/get. Mirrors RuleDefinition.Scope
+   * in the .NET abstractions and the UI's `RuleScopeDefinition`.
+   */
+  scope?: { objects: string[]; properties: string[] };
 }
 
 /** Well-known recovery strategy identifiers (mirror RecoveryStrategy constants). */
