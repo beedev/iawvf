@@ -1,4 +1,4 @@
-import type { LintReport, ProblemDetails } from '../types/api';
+import type { LintReport, ProblemDetails, ReferencingRule } from '../types/api';
 
 /** The configured API base URL (no trailing slash), from Vite env with a sane default. */
 export const API_BASE_URL: string = (
@@ -7,7 +7,8 @@ export const API_BASE_URL: string = (
 
 /**
  * A structured API error. Carries the HTTP status, the parsed RFC-7807 ProblemDetails (when present),
- * and — for 422 lint rejections — the {@link LintReport} returned by the governance gate.
+ * the {@link LintReport} for 422 lint rejections, and — for vocabulary 409 conflicts — the
+ * {@link ReferencingRule referencing rules} the server attached so the UI can explain what is blocking.
  *
  * IMPORTANT: never stringify the request that produced this; tokens and PHI must not be logged.
  */
@@ -38,6 +39,23 @@ export class ApiError extends Error {
   get isUnauthorized(): boolean {
     return this.status === 401;
   }
+
+  /**
+   * The active rules the server reported as referencing a vocabulary subject, surfaced via the
+   * ProblemDetails `referencingRules` extension on a 409 (e.g. a retire blocked by live usage).
+   * Empty when the error carries no such extension.
+   */
+  get referencingRules(): ReferencingRule[] {
+    const raw = this.problem?.['referencingRules'];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (r): r is ReferencingRule =>
+        typeof r === 'object' &&
+        r !== null &&
+        typeof (r as { key?: unknown }).key === 'string' &&
+        typeof (r as { name?: unknown }).name === 'string',
+    );
+  }
 }
 
 /** Supplies the current bearer token (or null). Set once by the auth provider. */
@@ -58,7 +76,7 @@ export function configureApi(options: {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'DELETE';
   body?: unknown;
   query?: Record<string, string | undefined>;
   /** Skip Authorization header (e.g. for the login call). */

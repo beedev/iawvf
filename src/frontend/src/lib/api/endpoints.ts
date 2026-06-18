@@ -2,6 +2,7 @@ import { request } from './client';
 import type {
   ApproveRequest,
   CreateRuleRequest,
+  CreateVocabularySubjectRequest,
   DryRunResponse,
   EvaluateRequest,
   EvaluateResponse,
@@ -15,7 +16,10 @@ import type {
   RuleJson,
   RuleMutationResponse,
   RuleSummary,
+  VocabularyAdminList,
+  VocabularyImpact,
   VocabularyResponse,
+  VocabularySubject,
 } from '../types/api';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────────────────────
@@ -95,4 +99,60 @@ export function disableRule(key: string): Promise<RuleMutationResponse> {
 
 export function evaluate(body: EvaluateRequest): Promise<EvaluateResponse> {
   return request<EvaluateResponse>('/api/evaluate', { method: 'POST', body });
+}
+
+// ── Vocabulary administration (Admin-only) ──────────────────────────────────────────────────────
+//
+// Subject paths contain dots and may end in `[]`, which are awkward (and lossy) inside a route segment.
+// The controller accepts a `?path=` query override that wins over the route segment, so we pass the path
+// as a query parameter and use a stable `current` placeholder for the route segment — unambiguous and
+// avoiding any double-encoding pitfalls.
+
+const PATH_SEGMENT_PLACEHOLDER = 'current';
+
+/** Lists ALL governed subjects (including deprecated), grouped object → properties. Admin only. */
+export function getVocabularyAdmin(signal?: AbortSignal): Promise<VocabularyAdminList> {
+  return request<VocabularyAdminList>('/api/vocabulary', { signal });
+}
+
+/** Creates a new Active governed subject. 201 on success; 409 if the path exists; 400 on invalid input. */
+export function createVocabularySubject(
+  body: CreateVocabularySubjectRequest,
+): Promise<VocabularySubject> {
+  return request<VocabularySubject>('/api/vocabulary', { method: 'POST', body });
+}
+
+/** Returns the active rules that reference a subject path (impact analysis). */
+export function getVocabularyImpact(
+  path: string,
+  signal?: AbortSignal,
+): Promise<VocabularyImpact> {
+  return request<VocabularyImpact>(`/api/vocabulary/${PATH_SEGMENT_PLACEHOLDER}/impact`, {
+    query: { path },
+    signal,
+  });
+}
+
+/** Deprecates a subject (still resolvable, hidden from new authoring). Returns the impact list. */
+export function deprecateVocabularySubject(path: string): Promise<VocabularyImpact> {
+  return request<VocabularyImpact>(`/api/vocabulary/${PATH_SEGMENT_PLACEHOLDER}/deprecate`, {
+    method: 'POST',
+    query: { path },
+  });
+}
+
+/**
+ * Retires (deletes) a deprecated, unreferenced subject. 204 on success; 409 with `referencingRules`
+ * when still referenced or not yet deprecated (surface those on {@link ApiError.referencingRules}).
+ */
+export function retireVocabularySubject(path: string): Promise<void> {
+  return request<void>(`/api/vocabulary/${PATH_SEGMENT_PLACEHOLDER}`, {
+    method: 'DELETE',
+    query: { path },
+  });
+}
+
+/** Manually rebuilds the live catalog cache from the DB. */
+export function refreshVocabularyCatalog(): Promise<void> {
+  return request<void>('/api/vocabulary/refresh', { method: 'POST' });
 }

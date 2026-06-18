@@ -216,6 +216,89 @@ export interface EvaluateResponse {
   factsAfter: Record<string, unknown> | null;
 }
 
+// ── Vocabulary administration (Admin-only) ──────────────────────────────────────────────────────
+//
+// Source of truth: src/backend/IAW.Vdf.Api/Dtos/VocabularyAdminDtos.cs and Controllers/VocabularyController.cs.
+// This is the GOVERNED, DB-backed catalog of subjects (objects/properties) that authoring + interpretation
+// are grounded on. The admin view includes deprecated subjects; the authoring tree (VocabularyResponse) is
+// active-only.
+
+/** A subject's lifecycle status. `Deprecated` subjects stay resolvable but are hidden from new authoring. */
+export type VocabularySubjectStatus = 'Active' | 'Deprecated';
+
+/** The closed set of subject data types the engine understands. */
+export type SubjectDataType = 'String' | 'Number' | 'Date' | 'Boolean' | 'Collection';
+
+/** A single governed vocabulary subject (admin view; includes deprecated rows). */
+export interface VocabularySubject {
+  /** The dotted fact path (e.g. `order.client.program`, `order.tests[]`). */
+  path: string;
+  /** The owning object name (first segment, sans trailing `[]`). */
+  objectName: string;
+  /** The humanized display label. */
+  label: string;
+  /** The data type: `String|Number|Date|Boolean|Collection`. */
+  dataType: string;
+  /** An optional description. */
+  description?: string | null;
+  /** Lifecycle status: `Active` | `Deprecated`. */
+  status: VocabularySubjectStatus;
+  /** Who created the subject. */
+  createdBy: string;
+  /** When the subject was created (ISO-8601). */
+  createdAt: string;
+  /** Who approved the most recent governance action (nullable). */
+  approvedBy?: string | null;
+  /** When the most recent governance action was approved (nullable, ISO-8601). */
+  approvedAt?: string | null;
+}
+
+/** An object grouping its properties (admin tree view). */
+export interface VocabularyObjectGroup {
+  /** The object name (e.g. `order`). */
+  name: string;
+  /** The humanized object label (e.g. `Order`). */
+  label: string;
+  /** The properties (subjects) belonging to this object, including deprecated ones. */
+  properties: VocabularySubject[];
+}
+
+/** The full admin vocabulary listing (objects → properties, all statuses). */
+export interface VocabularyAdminList {
+  /** The objects with their properties. */
+  objects: VocabularyObjectGroup[];
+}
+
+/** The request body for creating a new governed subject. */
+export interface CreateVocabularySubjectRequest {
+  /** The dotted fact path (e.g. `"client.program"`). Required. */
+  path: string;
+  /** The data type: `String|Number|Date|Boolean|Collection`. Required. */
+  dataType: SubjectDataType;
+  /** An optional display label; derived from the object name when omitted. */
+  label?: string | null;
+  /** An optional description. */
+  description?: string | null;
+}
+
+/** A rule that references a subject path (impact analysis row). */
+export interface ReferencingRule {
+  /** The rule key. */
+  key: string;
+  /** The rule name. */
+  name: string;
+}
+
+/** The impact-analysis response for a subject path. */
+export interface VocabularyImpact {
+  /** The analyzed subject path. */
+  path: string;
+  /** The active rules that reference the path. */
+  referencingRules: ReferencingRule[];
+  /** The number of referencing rules (server-computed). */
+  count: number;
+}
+
 // ── Problem Details (RFC 7807) ──────────────────────────────────────────────────────────────────
 
 export interface ProblemDetails {

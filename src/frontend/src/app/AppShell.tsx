@@ -26,6 +26,8 @@ import {
   LibraryFilled,
   PlayCircleRegular,
   PlayCircleFilled,
+  BookRegular,
+  BookFilled,
   SignOutRegular,
   PersonRegular,
 } from '@fluentui/react-icons';
@@ -33,6 +35,7 @@ import { fonts, radius, space } from '../theme/tokens';
 import { useThemeMode } from './ThemeModeContext';
 import { useAuth } from '../lib/auth';
 import { DEV_USERS } from '../lib/auth';
+import { canAdminVocabulary } from '../lib/vocabulary';
 
 const RAIL_WIDTH = '232px';
 
@@ -191,6 +194,8 @@ interface NavItem {
   hint: string;
   icon: ReactNode;
   iconActive: ReactNode;
+  /** When true, the item is only shown to users with the Admin role. */
+  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -215,6 +220,14 @@ const NAV_ITEMS: NavItem[] = [
     icon: <PlayCircleRegular />,
     iconActive: <PlayCircleFilled />,
   },
+  {
+    to: '/vocabulary',
+    label: 'Vocabulary',
+    hint: 'Manage controlled terms',
+    icon: <BookRegular />,
+    iconActive: <BookFilled />,
+    adminOnly: true,
+  },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -222,6 +235,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { mode, toggle } = useThemeMode();
   const { session, logout, login } = useAuth();
   const location = useLocation();
+
+  const isAdmin = canAdminVocabulary(session?.roles);
+  const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
   const onSwitchUser = async (username: string) => {
     const user = DEV_USERS.find((u) => u.username === username);
@@ -324,7 +340,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Nav rail */}
       <nav className={styles.rail} aria-label="Primary">
         <div className={styles.railHeader}>Workspace</div>
-        {NAV_ITEMS.map((item) => {
+        {visibleNavItems.map((item) => {
           const active = location.pathname.startsWith(item.to);
           return (
             <NavLink
