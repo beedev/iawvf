@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { ProbeModule } from './probe/probe.module';
 import { RegistryModule } from './registry/registry.module';
+import { RulesModule } from './rules/rules.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -40,6 +41,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     HealthModule,
     ProbeModule,
     RegistryModule,
+    RulesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

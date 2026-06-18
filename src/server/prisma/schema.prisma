@@ -93,3 +93,109 @@ model Field {
   @@unique([entityId, name])
   @@map("registry_field")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N3 — RULE PERSISTENCE (versioned, effective-dated, governed)
+//
+// Mirrors the .NET IAW.Vdf.Persistence model:
+//  - `Rule` is the stable identity row (one per rule key); mutable metadata only.
+//  - `RuleVersion` is an append-only, immutable version of the compiled body. The
+//    entire RuleDefinition (condition tree + outcomes + recovery) is serialized as
+//    JSONB in `definitionJson` — no relational decomposition of the tree.
+//  - Effective-dating: GetActiveRules windows on effectiveDate <= asOf < expiryDate;
+//    `isActive` is a denormalized "currently live" flag (one per rule).
+//  - Provenance (authorNl, interpreterVersion) and governance (approvedBy/At) ride
+//    along with each version.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The execution phase a rule runs in (mirrors the engine's RulePhase). Rules run
+/// Derive → Validate → Route.
+enum RulePhase {
+  Derive
+  Validate
+  Route
+
+  @@map("rule_phase")
+}
+
+/// A rule identity row — one row per logical rule key (e.g. "PM17"). Carries the
+/// stable metadata that doesn't change between versions. Versioned bodies live in
+/// RuleVersion.
+model Rule {
+  id          String    @id @default(uuid()) @db.Uuid
+  ruleKey     String    @unique @map("rule_key")
+  ruleSet     String?   @map("rule_set")
+  name        String
+  description String?
+  priority    Int       @default(0)
+  phase       RulePhase @default(Validate)
+  enabled     Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  versions RuleVersion[]
+
+  @@map("rule")
+}
+
+/// One immutable, compiled version of a rule's body. New versions are appended
+/// (version++); the prior active version is superseded (isActive=false) when a new
+/// version is immediately effective. The full RuleDefinition is stored as JSONB in
+/// `definitionJson`.
+model RuleVersion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  ruleId             String    @map("rule_id") @db.Uuid
+  version            Int
+  effectiveDate      DateTime  @map("effective_date")
+  expiryDate         DateTime? @map("expiry_date")
+  /// The full compiled RuleDefinition serialized as JSONB (condition tree + outcomes).
+  definitionJson     Json      @map("definition_json")
+  /// Provenance: the natural-language text that produced this rule (nullable).
+  authorNl           String?   @map("author_nl")
+  /// Provenance: the interpreter version that authored this rule (nullable).
+  interpreterVersion String?   @map("interpreter_version")
+  authoredBy         String    @default("system") @map("authored_by")
+  approvedBy         String?   @map("approved_by")
+  approvedAt         DateTime? @map("approved_at")
+  isActive           Boolean   @default(false) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  rule Rule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, version])
+  @@index([isActive, effectiveDate])
+  @@map("rule_version")
+}
+
+/// A single reference-data entry keyed by (source, key). The value is JSONB to
+/// support arbitrary shapes (scalar, array, object). Mirrors the engine's
+/// JSON reference provider: dotted keys resolve as Source="PolicyThresholds",
+/// Key="fixationWindow"; literal dotted keys (e.g. "TestCompendium.compatibleSpecimens")
+/// resolve as Source with empty Key.
+model ReferenceDataEntry {
+  id        String @id @default(uuid()) @db.Uuid
+  source    String
+  key       String
+  valueJson Json   @map("value_json")
+
+  @@unique([source, key])
+  @@map("reference_data")
+}
+
+/// Append-only audit record for a single rule evaluation. Never updated/deleted.
+model DecisionTrace {
+  id                  String    @id @default(uuid()) @db.Uuid
+  correlationId       String?   @map("correlation_id")
+  ruleKey             String    @map("rule_key")
+  version             Int
+  phase               RulePhase
+  applied             Boolean
+  assertResult        Boolean?  @map("assert_result")
+  producedOutcomeJson Json?     @map("produced_outcome_json")
+  conditionsJson      Json      @map("conditions_json")
+  factsReadJson       Json      @map("facts_read_json")
+  evaluatedAt         DateTime  @map("evaluated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@index([correlationId])
+  @@map("decision_trace")
+}

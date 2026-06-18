@@ -9,11 +9,18 @@ import * as path from 'path';
 
 import { JsonObject } from '../types';
 
-function findDir(name: string): string {
+function findDir(name: string, marker?: string): string {
   let dir: string | undefined = __dirname;
   while (dir !== undefined) {
     const candidate = path.join(dir, name);
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+    if (
+      fs.existsSync(candidate) &&
+      fs.statSync(candidate).isDirectory() &&
+      // When a marker file is given, only accept the directory that contains it.
+      // This disambiguates the repo-root corpus `rules/` from the server's
+      // `src/rules/` source module, which would otherwise shadow the walk-up.
+      (marker === undefined || fs.existsSync(path.join(candidate, marker)))
+    ) {
       return candidate;
     }
     const parent = path.dirname(dir);
@@ -24,7 +31,7 @@ function findDir(name: string): string {
   );
 }
 
-export const RULES_DIR = findDir('rules');
+export const RULES_DIR = findDir('rules', 'reference-data.json');
 export const FIXTURES_DIR = findDir('fixtures');
 export const REFERENCE_DATA_PATH = path.join(RULES_DIR, 'reference-data.json');
 
