@@ -132,8 +132,12 @@ describe('N6 API surface (e2e)', () => {
         .expect(200);
 
       const body = res.body as {
-        outcomes: { type: string }[];
-        trace: { ruleKey: string }[];
+        outcomes: {
+          type: string;
+          ruleKey: string | null;
+          ruleName: string | null;
+        }[];
+        trace: { ruleKey: string; ruleName: string | null }[];
         factsAfter: Record<string, unknown> | null;
         validation: { valid: boolean; errors: unknown[] };
       };
@@ -144,6 +148,22 @@ describe('N6 API surface (e2e)', () => {
       expect(Array.isArray(body.validation.errors)).toBe(true);
       // The PM17-fires facts are registry-clean.
       expect(body.validation.valid).toBe(true);
+
+      // N6 enrichment: outcomes are attributed to their originating rule. PM17 produces a
+      // CompleteHold for these facts; that outcome carries ruleKey "PM17" and a non-empty,
+      // human-readable ruleName. (Other rules — e.g. PM13 — may also hold; we target PM17.)
+      const pm17Outcome = body.outcomes.find((o) => o.ruleKey === 'PM17');
+      expect(pm17Outcome).toBeDefined();
+      expect(pm17Outcome!.type).toBe('CompleteHold');
+      expect(typeof pm17Outcome!.ruleName).toBe('string');
+      expect(pm17Outcome!.ruleName!.length).toBeGreaterThan(0);
+      // Every produced outcome should be attributable (no orphan business outcomes).
+      expect(body.outcomes.every((o) => typeof o.ruleKey === 'string')).toBe(
+        true,
+      );
+      // The trace mirror also carries the readable name for the PM17 entry.
+      const pm17Trace = body.trace.find((t) => t.ruleKey === 'PM17');
+      expect(pm17Trace!.ruleName).toBe(pm17Outcome!.ruleName);
     });
 
     it('reports a registry enum mismatch in the validation block but still returns outcomes', async () => {

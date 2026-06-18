@@ -5,7 +5,7 @@ import {
   DismissCircleFilled,
 } from '@fluentui/react-icons';
 import { fonts, radius, space } from '../../theme/tokens';
-import { groupLabel } from './resultModel';
+import { groupLabel, ruleAttribution } from './resultModel';
 import type { VerdictSummary } from './resultModel';
 
 /**
@@ -75,13 +75,35 @@ const useStyles = makeStyles({
     textTransform: 'uppercase',
     color: tokens.colorStatusWarningForeground1,
   },
-  itemReason: { color: tokens.colorNeutralForeground1, fontSize: '13.5px' },
+  itemRuleKey: {
+    fontFamily: fonts.mono,
+    fontSize: '11px',
+    fontWeight: 600,
+    paddingInline: '6px',
+    paddingBlock: '1px',
+    borderRadius: radius.sm,
+    backgroundColor: tokens.colorNeutralBackground3,
+    color: tokens.colorNeutralForeground2,
+  },
+  itemRuleName: {
+    fontFamily: fonts.body,
+    fontSize: '13px',
+    fontWeight: 600,
+    color: tokens.colorNeutralForeground1,
+  },
+  itemReason: { color: tokens.colorNeutralForeground2, fontSize: '13px' },
   itemScope: {
     fontFamily: fonts.mono,
     fontSize: '11.5px',
     color: tokens.colorNeutralForeground3,
   },
   sub: { color: tokens.colorNeutralForeground2, paddingInlineStart: '30px' },
+  triggered: {
+    paddingInlineStart: '30px',
+    color: tokens.colorNeutralForeground2,
+    fontSize: '12.5px',
+  },
+  triggeredKey: { fontFamily: fonts.mono, fontWeight: 600 },
 });
 
 /** Pluralize "hold/alert" depending on count, kept neutral for routes/records/blocks too. */
@@ -129,15 +151,39 @@ export function VerdictBanner({ summary }: { summary: VerdictSummary }) {
           </Text>
         ) : null
       ) : (
-        <ul className={styles.list} aria-label="Outcomes raised">
-          {summary.headlines.map((h, i) => (
-            <li key={`${h.type}-${i}`} className={styles.item}>
-              <span className={styles.itemGroup}>{groupLabel(h.group)}</span>
-              <span className={styles.itemReason}>{h.reason ?? h.type}</span>
-              {h.scope && <span className={styles.itemScope}>scope: {h.scope}</span>}
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className={styles.list} aria-label="Outcomes raised">
+            {summary.headlines.map((h, i) => {
+              const rule = ruleAttribution(h);
+              return (
+                <li key={`${h.type}-${i}`} className={styles.item} data-testid="verdict-headline">
+                  {rule.key && (
+                    <span className={styles.itemRuleKey} data-testid="verdict-rule-key">
+                      {rule.key}
+                    </span>
+                  )}
+                  <span className={styles.itemRuleName} data-testid="verdict-rule-name">
+                    {rule.name}
+                  </span>
+                  <span className={styles.itemGroup}>{groupLabel(h.group)}</span>
+                  <span className={styles.itemReason}>{h.reason ?? h.type}</span>
+                  {h.scope && <span className={styles.itemScope}>scope: {h.scope}</span>}
+                </li>
+              );
+            })}
+          </ul>
+          {summary.triggeredRuleKeys.length > 0 && (
+            <Text size={200} className={styles.triggered} as="p" data-testid="rules-triggered">
+              Rules triggered ({summary.triggeredRuleKeys.length}):{' '}
+              {summary.triggeredRuleKeys.map((k, i) => (
+                <span key={k}>
+                  {i > 0 ? ', ' : ''}
+                  <span className={styles.triggeredKey}>{k}</span>
+                </span>
+              ))}
+            </Text>
+          )}
+        </>
       )}
     </div>
   );

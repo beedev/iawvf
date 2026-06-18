@@ -209,6 +209,16 @@ export interface Outcome {
   reason: string | null;
   severity: string | null;
   parameters: Record<string, unknown>;
+  /**
+   * The key of the rule that produced this outcome (e.g. `"PM17"`), or null/absent when it could not
+   * be attributed. Added by the N6 API's outcome enrichment — optional for forward/backward compat.
+   */
+  ruleKey?: string | null;
+  /**
+   * The human-readable name of the producing rule (e.g. `"Circled H&E required for Technical FISH on
+   * FFPE"`), or null/absent when unknown. Pairs with {@link ruleKey} for the verdict's rule list.
+   */
+  ruleName?: string | null;
 }
 
 export interface ConditionTrace {

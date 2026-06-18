@@ -14,6 +14,18 @@ export interface EvaluateOptions {
 }
 
 /**
+ * An {@link EvaluationResult} paired with a `ruleKey -> name` lookup over the rules that actually
+ * ran. The map is built from the SAME active-rule set the engine evaluated, so the API layer can
+ * attribute each outcome/trace entry to a human-readable rule name WITHOUT touching engine internals
+ * or issuing a second query. Keep this DB-shaped projection out of the pure engine.
+ */
+export interface EvaluationWithRules {
+  result: EvaluationResult;
+  /** Maps a rule key (e.g. `PM17`) to its human-readable name. */
+  ruleNamesByKey: Map<string, string>;
+}
+
+/**
  * Wires the N2 deterministic engine to the Postgres-backed seams: it loads the
  * active rules ({@link RuleRepository.getActiveRulesAsync}) and the DB reference data
  * ({@link DbReferenceDataLoader.load}) for the requested instant, constructs a
@@ -51,5 +63,36 @@ export class RuleEvaluationService {
       ...(options.ruleSet !== undefined ? { ruleSet: options.ruleSet } : {}),
     };
     return engine.evaluate(request);
+  }
+
+  /**
+   * Same as {@link evaluate}, but also returns a `ruleKey -> name` map over the rules that ran, so
+   * the API layer can attribute outcomes/traces to readable rule names. The map is derived from the
+   * exact rule set the engine evaluated — no engine change, no extra query.
+   */
+  async evaluateWithRules(
+    facts: JsonObject,
+    options: EvaluateOptions = {},
+  ): Promise<EvaluationWithRules> {
+    const asOf = options.asOf ?? new Date();
+    const [rules, references] = await Promise.all([
+      this.ruleRepo.getActiveRulesAsync(asOf, options.ruleSet),
+      this.referenceLoader.load(),
+    ]);
+
+    const engine = new VdfEngine(rules, references, new SystemClock());
+    const request: EvaluationRequest = {
+      facts,
+      asOf: asOf.toISOString(),
+      ...(options.ruleSet !== undefined ? { ruleSet: options.ruleSet } : {}),
+    };
+    const result = engine.evaluate(request);
+
+    const ruleNamesByKey = new Map<string, string>();
+    for (const rule of rules) {
+      ruleNamesByKey.set(rule.key, rule.name);
+    }
+
+    return { result, ruleNamesByKey };
   }
 }

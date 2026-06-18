@@ -3,7 +3,7 @@ import { makeStyles, tokens, Text, Button, shorthands } from '@fluentui/react-co
 import { ChevronRightRegular, ChevronDownRegular } from '@fluentui/react-icons';
 import { fonts, radius, space, outcomeGroupColors } from '../../theme/tokens';
 import type { Outcome } from '../../lib/types/api';
-import { groupOutcomesForDetail, partitionNoAction } from './resultModel';
+import { groupOutcomesForDetail, partitionNoAction, ruleAttribution } from './resultModel';
 
 /**
  * The OUTCOME DETAIL region beneath the top-line verdict. Renders the business + derivation outcomes
@@ -47,6 +47,32 @@ const useStyles = makeStyles({
   },
   type: { fontFamily: fonts.display, fontSize: '15px', fontWeight: 600 },
   scope: { fontFamily: fonts.mono, fontSize: '12px', color: tokens.colorNeutralForeground3 },
+  // The originating-rule attribution row: a subtle monospace key tag + the prominent rule name.
+  rule: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: space.sm,
+    flexWrap: 'wrap',
+    marginTop: '2px',
+    marginBottom: '2px',
+  },
+  ruleKeyTag: {
+    fontFamily: fonts.mono,
+    fontSize: '11px',
+    fontWeight: 600,
+    letterSpacing: '0.02em',
+    paddingInline: '6px',
+    paddingBlock: '1px',
+    borderRadius: radius.sm,
+    backgroundColor: tokens.colorNeutralBackground3,
+    color: tokens.colorNeutralForeground2,
+  },
+  ruleName: {
+    fontFamily: fonts.body,
+    fontSize: '13px',
+    fontWeight: 600,
+    color: tokens.colorNeutralForeground1,
+  },
   reason: { color: tokens.colorNeutralForeground1, marginTop: '4px' },
   params: { marginTop: space.sm, display: 'flex', flexWrap: 'wrap', gap: space.sm },
   param: {
@@ -81,6 +107,17 @@ const useStyles = makeStyles({
     borderRadius: radius.sm,
     backgroundColor: tokens.colorNeutralBackground2,
   },
+  noActionKey: {
+    fontFamily: fonts.mono,
+    fontSize: '11px',
+    fontWeight: 600,
+    paddingInline: '6px',
+    paddingBlock: '1px',
+    borderRadius: radius.sm,
+    backgroundColor: tokens.colorNeutralBackground3,
+    color: tokens.colorNeutralForeground2,
+  },
+  noActionName: { fontSize: '12.5px', fontWeight: 600, color: tokens.colorNeutralForeground1 },
   noActionType: { fontFamily: fonts.mono, fontSize: '12px', color: tokens.colorNeutralForeground2 },
   noActionReason: { fontSize: '12px', color: tokens.colorNeutralForeground3 },
 });
@@ -113,17 +150,30 @@ export function OutcomesPanel({ outcomes }: { outcomes: Outcome[] }) {
                   </span>
                   <Text className={styles.groupHint}>{hint}</Text>
                 </div>
-                {items.map((o, i) => (
+                {items.map((o, i) => {
+                  const rule = ruleAttribution(o);
+                  return (
                   <div
                     key={`${o.type}-${i}`}
                     className={styles.card}
                     style={{ borderInlineStartColor: c.border }}
+                    data-testid="outcome-card"
                   >
                     <div className={styles.cardHead}>
                       <span className={styles.type} style={{ color: c.fg }}>
                         {o.type}
                       </span>
                       {o.scope && <span className={styles.scope}>scope: {o.scope}</span>}
+                    </div>
+                    <div className={styles.rule}>
+                      {rule.key && (
+                        <span className={styles.ruleKeyTag} data-testid="outcome-rule-key">
+                          {rule.key}
+                        </span>
+                      )}
+                      <span className={styles.ruleName} data-testid="outcome-rule-name">
+                        {rule.name}
+                      </span>
                     </div>
                     {o.reason && <Text className={styles.reason}>{o.reason}</Text>}
                     {Object.keys(o.parameters).length > 0 && (
@@ -136,7 +186,8 @@ export function OutcomesPanel({ outcomes }: { outcomes: Outcome[] }) {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}
@@ -160,12 +211,26 @@ export function OutcomesPanel({ outcomes }: { outcomes: Outcome[] }) {
           </Button>
           {showNoAction && (
             <ul id="no-action-list" className={styles.noActionList} data-testid="no-action-list">
-              {noAction.map((o, i) => (
-                <li key={`${o.type}-${i}`} className={styles.noActionItem}>
-                  <span className={styles.noActionType}>{o.type}</span>
-                  {o.reason && <span className={styles.noActionReason}>{o.reason}</span>}
-                </li>
-              ))}
+              {noAction.map((o, i) => {
+                const rule = ruleAttribution(o);
+                return (
+                  <li key={`${o.type}-${i}`} className={styles.noActionItem}>
+                    {rule.key && (
+                      <span className={styles.noActionKey} data-testid="no-action-rule-key">
+                        {rule.key}
+                      </span>
+                    )}
+                    <span className={styles.noActionName} data-testid="no-action-rule-name">
+                      {rule.name}
+                    </span>
+                    <span className={styles.noActionType} aria-hidden>
+                      →
+                    </span>
+                    <span className={styles.noActionType}>{o.type}</span>
+                    {o.reason && <span className={styles.noActionReason}>{o.reason}</span>}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

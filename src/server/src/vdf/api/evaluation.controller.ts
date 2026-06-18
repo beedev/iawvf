@@ -79,7 +79,7 @@ export class EvaluationController {
       options.ruleSet = request.ruleSet;
     }
 
-    const result = await this.evaluator.evaluate(
+    const { result, ruleNamesByKey } = await this.evaluator.evaluateWithRules(
       request.factsJson as JsonObject,
       options,
     );
@@ -95,6 +95,6 @@ export class EvaluationController {
         `validationErrors=${validation.errors.length} correlationId=${correlationId}`,
     );
 
-    return EvaluateResponseDto.from(result, validation);
+    return EvaluateResponseDto.from(result, validation, ruleNamesByKey);
   }
 }

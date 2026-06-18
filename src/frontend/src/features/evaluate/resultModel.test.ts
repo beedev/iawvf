@@ -5,6 +5,7 @@ import {
   groupOutcomesForDetail,
   partitionNoAction,
   isBusinessOutcome,
+  ruleAttribution,
   GROUP_LABELS,
 } from './resultModel';
 import type { Outcome } from '../../lib/types/api';
@@ -18,6 +19,8 @@ function outcome(group: string, type: string, extra: Partial<Outcome> = {}): Out
     reason: extra.reason ?? null,
     severity: extra.severity ?? null,
     parameters: extra.parameters ?? {},
+    ruleKey: extra.ruleKey ?? null,
+    ruleName: extra.ruleName ?? null,
   };
 }
 
@@ -48,7 +51,14 @@ describe('computeVerdict (top-line verdict logic)', () => {
     expect(v.verdict).toBe('held');
     expect(v.businessCount).toBe(1);
     expect(v.headlines).toEqual([
-      { type: 'CompleteHold', group: 'Validation', scope: 'order', reason: 'Held' },
+      {
+        type: 'CompleteHold',
+        group: 'Validation',
+        scope: 'order',
+        reason: 'Held',
+        ruleKey: null,
+        ruleName: null,
+      },
     ]);
   });
 
@@ -71,6 +81,54 @@ describe('computeVerdict (top-line verdict logic)', () => {
   it('does NOT classify None or Derivation as business', () => {
     expect(isBusinessOutcome(CONTINUE)).toBe(false);
     expect(isBusinessOutcome(DERIVE)).toBe(false);
+  });
+
+  it('carries each business outcome rule attribution onto its headline', () => {
+    const pm17 = outcome('Validation', 'CompleteHold', {
+      scope: 'order',
+      reason: 'Circled H&E not present',
+      ruleKey: 'PM17',
+      ruleName: 'Circled H&E required for Technical FISH on FFPE',
+    });
+    const v = computeVerdict([pm17]);
+    expect(v.headlines[0]).toMatchObject({
+      ruleKey: 'PM17',
+      ruleName: 'Circled H&E required for Technical FISH on FFPE',
+    });
+  });
+
+  it('summarises the DISTINCT rules that produced a business outcome (triggered count + keys)', () => {
+    const a = outcome('Validation', 'CompleteHold', { ruleKey: 'PM17', ruleName: 'Hold rule' });
+    const b = outcome('Workflow', 'RouteToReview', { ruleKey: 'R09', ruleName: 'Route rule' });
+    // A second outcome from the SAME rule must not double-count.
+    const a2 = outcome('Control', 'PreventAction', { ruleKey: 'PM17', ruleName: 'Hold rule' });
+    const v = computeVerdict([a, b, a2, CONTINUE, DERIVE]);
+    expect(v.triggeredRuleKeys).toEqual(['PM17', 'R09']);
+  });
+
+  it('omits unattributed (ruleKey-less) outcomes from the triggered keys', () => {
+    const v = computeVerdict([HOLD]); // HOLD has no ruleKey
+    expect(v.triggeredRuleKeys).toEqual([]);
+  });
+});
+
+describe('ruleAttribution (consistent rule labelling)', () => {
+  it('prefers the readable name when present', () => {
+    expect(ruleAttribution({ ruleKey: 'PM17', ruleName: 'Circled H&E required' })).toEqual({
+      key: 'PM17',
+      name: 'Circled H&E required',
+    });
+  });
+
+  it('falls back to the key when the name is absent', () => {
+    expect(ruleAttribution({ ruleKey: 'PM17', ruleName: null })).toEqual({
+      key: 'PM17',
+      name: 'PM17',
+    });
+  });
+
+  it('falls back to a neutral label when neither key nor name is present', () => {
+    expect(ruleAttribution({})).toEqual({ key: null, name: 'Unattributed rule' });
   });
 });
 

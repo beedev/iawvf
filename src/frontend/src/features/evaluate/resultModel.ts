@@ -65,6 +65,21 @@ export function groupLabel(group: string): string {
   return GROUP_LABELS[group as OutcomeGroup] ?? group;
 }
 
+/**
+ * The text by which an outcome is attributed to its originating rule. Prefers the human-readable
+ * `ruleName`, falling back to the `ruleKey` alone, and finally to a neutral "Unattributed rule" when
+ * the API produced neither (older payloads / engine-internal outcomes). Used by the verdict's rule
+ * list, the outcome cards, and the no-action list so attribution reads consistently everywhere.
+ */
+export function ruleAttribution(o: {
+  ruleKey?: string | null;
+  ruleName?: string | null;
+}): { key: string | null; name: string } {
+  const key = o.ruleKey ?? null;
+  const name = o.ruleName ?? (key ?? 'Unattributed rule');
+  return { key, name };
+}
+
 /** Map an outcome group string to its plain-language hint, defensively. */
 export function groupHint(group: string): string {
   return GROUP_HINTS[group as OutcomeGroup] ?? '';
@@ -97,6 +112,10 @@ export interface VerdictHeadline {
   group: string;
   scope: string | null;
   reason: string | null;
+  /** The key of the rule that produced this outcome (e.g. `PM17`), or null when unattributed. */
+  ruleKey: string | null;
+  /** The human-readable name of the producing rule, or null when unknown. */
+  ruleName: string | null;
 }
 
 /** The computed top-line verdict for an evaluation. */
@@ -110,6 +129,12 @@ export interface VerdictSummary {
   derivationCount: number;
   /** The condensed headlines for each business outcome (empty when it passes). */
   headlines: VerdictHeadline[];
+  /**
+   * The distinct rule keys that produced a business outcome, in first-seen order — the textual
+   * "Rules triggered (N): PM17, …" summary near the verdict. Excludes derivations and no-action
+   * rules; unattributed outcomes (no ruleKey) contribute nothing here.
+   */
+  triggeredRuleKeys: string[];
 }
 
 /**
@@ -124,6 +149,14 @@ export function computeVerdict(outcomes: Outcome[]): VerdictSummary {
   const noAction = outcomes.filter(isNoActionOutcome);
   const derivations = outcomes.filter(isDerivationOutcome);
 
+  // Distinct producing-rule keys for business outcomes, in first-seen order.
+  const triggeredRuleKeys: string[] = [];
+  for (const o of business) {
+    if (o.ruleKey && !triggeredRuleKeys.includes(o.ruleKey)) {
+      triggeredRuleKeys.push(o.ruleKey);
+    }
+  }
+
   return {
     verdict: business.length === 0 ? 'passes' : 'held',
     businessCount: business.length,
@@ -134,7 +167,10 @@ export function computeVerdict(outcomes: Outcome[]): VerdictSummary {
       group: o.group,
       scope: o.scope,
       reason: o.reason,
+      ruleKey: o.ruleKey ?? null,
+      ruleName: o.ruleName ?? null,
     })),
+    triggeredRuleKeys,
   };
 }
 
