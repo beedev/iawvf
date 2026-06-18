@@ -13,6 +13,62 @@ public sealed class InterpretRequest
     [Required]
     [MaxLength(4000)] // M3: bound LLM input size to curb cost / DoS via oversized prompts.
     public string NaturalLanguage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional OBJECT-level scope: object names (first path segment, e.g. <c>"order"</c>). When supplied
+    /// (and <see cref="Properties"/> is empty) the interpreter is grounded only against subjects belonging
+    /// to these objects. Ignored when <see cref="Properties"/> is non-empty.
+    /// </summary>
+    public string[]? Objects { get; set; }
+
+    /// <summary>
+    /// Optional PROPERTY-level scope: full subject paths (e.g. <c>"order.client.nyStatus"</c>). When
+    /// supplied, the interpreter is grounded only against these exact subjects. Takes precedence over
+    /// <see cref="Objects"/>.
+    /// </summary>
+    public string[]? Properties { get; set; }
+}
+
+/// <summary>A single property (subject) within an object, projected for the vocabulary tree.</summary>
+public sealed class VocabularyPropertyDto
+{
+    /// <summary>The full subject path (e.g. <c>"order.client.nyStatus"</c>).</summary>
+    public required string Path { get; init; }
+
+    /// <summary>The property name relative to its object (the path minus the object prefix, e.g. <c>"client.nyStatus"</c>).</summary>
+    public required string Name { get; init; }
+
+    /// <summary>The subject's data type (<c>SubjectDataType</c> name).</summary>
+    public required string DataType { get; init; }
+}
+
+/// <summary>An OBJECT grouping its PROPERTIES, projected for the vocabulary tree.</summary>
+public sealed class VocabularyObjectDto
+{
+    /// <summary>The object name (first path segment, e.g. <c>"order"</c>).</summary>
+    public required string Name { get; init; }
+
+    /// <summary>The Title-cased display label (e.g. <c>"Order"</c>).</summary>
+    public required string Label { get; init; }
+
+    /// <summary>The object's properties, sorted by path.</summary>
+    public required IReadOnlyList<VocabularyPropertyDto> Properties { get; init; }
+}
+
+/// <summary>
+/// The controlled vocabulary projected as an OBJECT → PROPERTY tree for authoring UIs, plus the flat
+/// operator and outcome name lists. Subjects are grouped by their first dotted path segment.
+/// </summary>
+public sealed class VocabularyTreeDto
+{
+    /// <summary>The objects (subject groups), sorted by name.</summary>
+    public required IReadOnlyList<VocabularyObjectDto> Objects { get; init; }
+
+    /// <summary>The legal operator names (<c>OperatorKind</c>), sorted.</summary>
+    public required IReadOnlyList<string> Operators { get; init; }
+
+    /// <summary>The legal outcome type names (<c>OutcomeType</c>), sorted.</summary>
+    public required IReadOnlyList<string> Outcomes { get; init; }
 }
 
 /// <summary>The interpreter result: candidate rule JSON, confidence, and unmapped phrases / gaps.</summary>

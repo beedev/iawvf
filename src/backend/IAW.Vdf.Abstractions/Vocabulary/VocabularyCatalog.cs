@@ -89,6 +89,61 @@ public sealed class VocabularyCatalog
     /// <returns><see langword="true"/> if known.</returns>
     public bool IsKnownOutcome(OutcomeType type) => _outcomes.Contains(type);
 
+    /// <summary>
+    /// Produces a narrowed catalog that retains ONLY the subjects whose <see cref="SubjectDefinition.Path"/>
+    /// appears in <paramref name="subjectPaths"/> (intersected with this catalog's known subjects), while
+    /// keeping ALL of this catalog's operators, references, and outcomes fully available. This is the
+    /// grounding primitive for OBJECT/PROPERTY scoping: the interpreter is constrained to a subset of facts
+    /// without losing any of the closed operator / outcome / reference vocabulary.
+    /// </summary>
+    /// <param name="subjectPaths">
+    /// The subject paths to retain. Paths not known to this catalog are ignored (intersection semantics).
+    /// When the sequence is empty, this (full) catalog is returned unchanged.
+    /// </param>
+    /// <returns>
+    /// A new <see cref="VocabularyCatalog"/> scoped to the requested subjects, or this catalog itself when
+    /// <paramref name="subjectPaths"/> is empty.
+    /// </returns>
+    public VocabularyCatalog Subset(IEnumerable<string> subjectPaths)
+    {
+        ArgumentNullException.ThrowIfNull(subjectPaths);
+
+        var requested = subjectPaths as IReadOnlyCollection<string> ?? subjectPaths.ToList();
+        if (requested.Count == 0)
+        {
+            return this;
+        }
+
+        var builder = CreateBuilder();
+
+        // Subjects are narrowed to the intersection of the requested paths and this catalog's subjects.
+        foreach (var path in requested)
+        {
+            if (_subjects.TryGetValue(path, out var definition))
+            {
+                builder.AddSubject(definition.Path, definition.DataType);
+            }
+        }
+
+        // Operators, references, and outcomes stay fully available — only subjects are narrowed.
+        foreach (var op in _operators)
+        {
+            builder.AddOperator(op);
+        }
+
+        foreach (var reference in _references)
+        {
+            builder.AddReference(reference);
+        }
+
+        foreach (var outcome in _outcomes)
+        {
+            builder.AddOutcome(outcome);
+        }
+
+        return builder.Build();
+    }
+
     /// <summary>Starts building a vocabulary catalog.</summary>
     /// <returns>A new builder.</returns>
     public static Builder CreateBuilder() => new();
