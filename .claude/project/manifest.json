@@ -5,30 +5,236 @@
   "created": "2026-06-17",
   "updated": "2026-06-18",
   "purpose": "Validation & Decision Framework (VDF) for NeoGenomics accessioning: a deterministic, configuration-driven rule engine (WHEN/DECISION/ON SUCCESS/ON FAILURE, 6 operators, 5 outcome groups) with versioned rules, full decision-trace explainability, NL authoring copilot, and a governed, DATA-DRIVEN ENTITY SCHEMA REGISTRY as the bottom-up source of truth (entities with typed fields -> vocabulary projected from it -> incoming transactions validated against it -> rules reference guaranteed-typed fields). REBUILDING in Node/TypeScript; the proven .NET stack (src/backend) is the baseline, retained until the Node build reaches verified parity, then retired.",
-  "stack": ["node-20+", "typescript", "nestjs", "prisma", "postgresql", "ajv", "openai-api", "jose-jwt", "react-18", "vite", "fluent-ui-v9", "vitest", "supertest"],
+  "stack": [
+    "node-20+",
+    "typescript",
+    "nestjs",
+    "prisma",
+    "postgresql",
+    "ajv",
+    "openai-api",
+    "jose-jwt",
+    "react-18",
+    "vite",
+    "fluent-ui-v9",
+    "vitest",
+    "supertest"
+  ],
   "goals": [
-    {"id": "G1", "mandatory": true, "title": "Production enterprise-grade quality", "description": "Clean module boundaries, full TS typing (strict), structured logging, graceful errors, input validation (Ajv/zod at boundaries), idempotency, observability, documented APIs.", "applies_to": "all_features"},
-    {"id": "G2", "mandatory": true, "title": "Security & vulnerability verification", "description": "AuthN/AuthZ (JWT+RBAC) on every endpoint, input validation, parameterized data access (Prisma), secrets via .env/env only (never hard-coded; incl. OPENAI_API_KEY, JWT secret, DB creds), OWASP review, npm audit clean (no high/critical), no PHI/secrets in logs, schema-validated LLM output. Findings block closure.", "applies_to": "all_features"},
-    {"id": "G3", "mandatory": true, "title": "Rich UI/UX design quality", "description": "Reuse + repoint the existing polished React/Fluent UI v9 app; adapt the vocabulary screen to the entity-registry model. WCAG 2.1 AA.", "applies_to": "all_user_facing_features"}
+    {
+      "id": "G1",
+      "mandatory": true,
+      "title": "Production enterprise-grade quality",
+      "description": "Clean module boundaries, full TS typing (strict), structured logging, graceful errors, input validation (Ajv/zod at boundaries), idempotency, observability, documented APIs.",
+      "applies_to": "all_features"
+    },
+    {
+      "id": "G2",
+      "mandatory": true,
+      "title": "Security & vulnerability verification",
+      "description": "AuthN/AuthZ (JWT+RBAC) on every endpoint, input validation, parameterized data access (Prisma), secrets via .env/env only (never hard-coded; incl. OPENAI_API_KEY, JWT secret, DB creds), OWASP review, npm audit clean (no high/critical), no PHI/secrets in logs, schema-validated LLM output. Findings block closure.",
+      "applies_to": "all_features"
+    },
+    {
+      "id": "G3",
+      "mandatory": true,
+      "title": "Rich UI/UX design quality",
+      "description": "Reuse + repoint the existing polished React/Fluent UI v9 app; adapt the vocabulary screen to the entity-registry model. WCAG 2.1 AA.",
+      "applies_to": "all_user_facing_features"
+    }
   ],
   "conventions": {
     "server_root": "src/server",
     "frontend_root": "src/frontend",
     "dotnet_baseline": "src/backend (proven; retained until Node parity, then removed)",
-    "reused_artifacts": ["rules/*.json", "fixtures/*.json", "rules/reference-data.json", "rule.schema.json — the Node engine must reproduce identical outcomes on this corpus (cross-validation vs .NET)"],
+    "reused_artifacts": [
+      "rules/*.json",
+      "fixtures/*.json",
+      "rules/reference-data.json",
+      "rule.schema.json \u2014 the Node engine must reproduce identical outcomes on this corpus (cross-validation vs .NET)"
+    ],
     "postgres": "host=localhost port=5433 (docker); Node uses database 'iawnode' (separate from .NET's 'iaw')",
-    "principle": "Entity Schema Registry is the bottom-up source of truth. Deterministic runtime; NL authoring compile-time only. Configure-over-code: entities, fields, rules, vocabulary are all data, governed at runtime — no redeploy to extend the model.",
+    "principle": "Entity Schema Registry is the bottom-up source of truth. Deterministic runtime; NL authoring compile-time only. Configure-over-code: entities, fields, rules, vocabulary are all data, governed at runtime \u2014 no redeploy to extend the model.",
     "llm_config": "OpenAI via .env (OPENAI_API_KEY, OPENAI_MODEL=gpt-4.1, OPENAI_BASE_URL); gitignored; never hard-coded."
   },
   "features": [
-    {"id": 0, "category": "platform", "lane_hint": "greenfield", "description": "N0 Server scaffold: NestJS app (src/server), Prisma + Postgres(iawnode), config from .env, JWT auth + RBAC (Author/Reviewer/Admin) via guards, /health, global exception filter (RFC7807-style), structured logging (no PHI/secrets), Swagger, CORS for the UI, Vitest + supertest harness.", "acceptance": ["app boots + /health 200", "prisma migrate applies to iawnode", "JWT login + role guards work", "swagger served", "vitest+supertest harness green"], "passes": true, "verified_by": "build 0 err; 16 Jest+supertest; audit 0 high/crit; live health/swagger/login", "verified_at": "2026-06-18", "commits": ["35cf82b"], "notes": "NestJS+Prisma(iawnode)+JWT/RBAC+health+RFC7807+Swagger on :4000."},
-    {"id": 1, "category": "registry", "lane_hint": "feature", "description": "N1 Entity Schema Registry (bottom-up source of truth): Prisma entities + fields tables (entity key case-insensitive unique, fields with name/type/required/allowedValues/description); registry service (governed CRUD, add-entity + add-field-by-selection — no free-text objects); compile each entity to a JSON Schema; Ajv validation of a transaction/fact document against the registry; seeded from the canonical entities (derived from the .NET vocabulary subjects). Admin API + tests.", "acceptance": ["entities+fields persisted; entity keys case-insensitively unique (no Kit/kit dup)", "entity->JSON Schema compiled", "Ajv validates a fact doc against the registry (shape/type/allowedValues)", "seeded canonical entities present", "tests green"], "passes": true, "verified_by": "45 tests; live Kit->201/KIT->409 case-insensitive dedup; bad-fact validation type+enum errors", "verified_at": "2026-06-18", "commits": ["08b09b6"], "notes": "The new foundation; free-text-object/Kit-kit bug structurally impossible."},
-    {"id": 2, "category": "engine", "lane_hint": "feature", "description": "N2 VDF core engine (TS): fact resolution over JSON, 6 operator families, leaf/group conditions + quantifiers, 5 outcome groups, recovery, rule-chaining (derive phase), reconciler, decision traces. Pure TS, embeddable. MUST reproduce identical outcomes on the reused rules/*.json + fixtures/*.json corpus (cross-validate vs .NET).", "acceptance": ["6 operators unit-tested", "deterministic + full trace", "rule-chaining works", "the corpus (10 reference + extension rules) produces the SAME outcomes as the .NET build over the fixtures", "tests green"], "passes": true, "verified_by": "120 Jest tests incl. corpus-parity reproducing .NET outcome table exactly for all 14 rules", "verified_at": "2026-06-18", "commits": ["84be1a3"], "notes": "Engine parity proven; numeric/date/regex semantics matched + documented."},
-    {"id": 3, "category": "persistence", "lane_hint": "feature", "description": "N3 Rule persistence + repository: Prisma rules/rule_versions/reference_data/decision_traces (versioned, effective-dated, rule body JSONB); reference-data provider; corpus importer; vocabulary PROJECTED from the entity registry (objects=entities, properties=fields) — not a separate free-text list. Integration tests against iawnode.", "acceptance": ["versioned/effective-dated rules round-trip", "engine runs against DB-backed repo", "vocabulary is a projection of the registry", "tests green"], "passes": false, "verified_by": null, "verified_at": null, "commits": [], "notes": ""},
-    {"id": 4, "category": "authoring", "lane_hint": "feature", "description": "N4 Authoring tooling: rule JSON-schema validation (Ajv on rule.schema.json), vocabulary linter grounding on the registry (subjects must be real entity.field; type checks), round-trip paraphraser, dry-run previewer (real engine, read-only). Tests.", "acceptance": ["linter rejects unknown/typo entity.field + type mismatches", "schema validation works", "paraphrase + dry-run work", "tests green"], "passes": false, "verified_by": null, "verified_at": null, "commits": [], "notes": ""},
-    {"id": 5, "category": "authoring", "lane_hint": "feature", "description": "N5 OpenAI NL interpreter: constrained NL->structured rule grounded in the registry-projected vocabulary; Ajv+lint validation gate (no silent invention; gaps surfaced); OPENAI_* from .env; deterministic stub for offline/tests.", "acceptance": ["NL compiles to rule using only registry terms", "output validated; invalid rejected as gaps", "no key in code", "stub offline", "tests green"], "passes": false, "verified_by": null, "verified_at": null, "commits": [], "notes": ""},
-    {"id": 6, "category": "api", "lane_hint": "feature", "description": "N6 API surface (NestJS): POST /evaluate (validate facts against registry, then evaluate -> outcomes+trace), authoring endpoints, rule governance CRUD (version/approve/effective-date), entity-registry admin (entities/fields), vocabulary projection. JWT+RBAC, Swagger, health, error filter. supertest integration tests.", "acceptance": ["evaluate validates+returns outcomes+trace", "registry admin endpoints work + RBAC", "rule governance works", "swagger+health", "tests green"], "passes": false, "verified_by": null, "verified_at": null, "commits": [], "notes": ""},
-    {"id": 7, "category": "ui", "lane_hint": "feature", "description": "N7 Repoint React UI to the Node API; adapt the Vocabulary screen to the entity-registry model: manage Entities and their typed Fields (add entity; add field by selecting the entity, not free-text path; field type + allowedValues); authoring scope + repository 'operates on' read from the registry. WCAG AA.", "acceptance": ["UI works against Node API end-to-end", "entity/field management (no free-text dup)", "authoring + repository scope from registry", "build/lint/tests green"], "passes": false, "verified_by": null, "verified_at": null, "commits": [], "notes": ""},
-    {"id": 8, "category": "quality", "lane_hint": "feature", "description": "N8 Hardening + retire .NET: security review (G2), npm audit, perf (100+ rules within SLA), full regression, docs (README/architecture/integration/authoring/registry). Once Node is at verified parity, remove src/backend (.NET) and update docs/bootstrap.", "acceptance": ["security review clean", "npm audit no high/critical", "perf within SLA", "full regression green", "docs done", ".NET removed after parity"], "passes": false, "verified_by": null, "verified_at": null, "commits": [], "notes": ""}
+    {
+      "id": 0,
+      "category": "platform",
+      "lane_hint": "greenfield",
+      "description": "N0 Server scaffold: NestJS app (src/server), Prisma + Postgres(iawnode), config from .env, JWT auth + RBAC (Author/Reviewer/Admin) via guards, /health, global exception filter (RFC7807-style), structured logging (no PHI/secrets), Swagger, CORS for the UI, Vitest + supertest harness.",
+      "acceptance": [
+        "app boots + /health 200",
+        "prisma migrate applies to iawnode",
+        "JWT login + role guards work",
+        "swagger served",
+        "vitest+supertest harness green"
+      ],
+      "passes": true,
+      "verified_by": "build 0 err; 16 Jest+supertest; audit 0 high/crit; live health/swagger/login",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "35cf82b"
+      ],
+      "notes": "NestJS+Prisma(iawnode)+JWT/RBAC+health+RFC7807+Swagger on :4000."
+    },
+    {
+      "id": 1,
+      "category": "registry",
+      "lane_hint": "feature",
+      "description": "N1 Entity Schema Registry (bottom-up source of truth): Prisma entities + fields tables (entity key case-insensitive unique, fields with name/type/required/allowedValues/description); registry service (governed CRUD, add-entity + add-field-by-selection \u2014 no free-text objects); compile each entity to a JSON Schema; Ajv validation of a transaction/fact document against the registry; seeded from the canonical entities (derived from the .NET vocabulary subjects). Admin API + tests.",
+      "acceptance": [
+        "entities+fields persisted; entity keys case-insensitively unique (no Kit/kit dup)",
+        "entity->JSON Schema compiled",
+        "Ajv validates a fact doc against the registry (shape/type/allowedValues)",
+        "seeded canonical entities present",
+        "tests green"
+      ],
+      "passes": true,
+      "verified_by": "45 tests; live Kit->201/KIT->409 case-insensitive dedup; bad-fact validation type+enum errors",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "08b09b6"
+      ],
+      "notes": "The new foundation; free-text-object/Kit-kit bug structurally impossible."
+    },
+    {
+      "id": 2,
+      "category": "engine",
+      "lane_hint": "feature",
+      "description": "N2 VDF core engine (TS): fact resolution over JSON, 6 operator families, leaf/group conditions + quantifiers, 5 outcome groups, recovery, rule-chaining (derive phase), reconciler, decision traces. Pure TS, embeddable. MUST reproduce identical outcomes on the reused rules/*.json + fixtures/*.json corpus (cross-validate vs .NET).",
+      "acceptance": [
+        "6 operators unit-tested",
+        "deterministic + full trace",
+        "rule-chaining works",
+        "the corpus (10 reference + extension rules) produces the SAME outcomes as the .NET build over the fixtures",
+        "tests green"
+      ],
+      "passes": true,
+      "verified_by": "120 Jest tests incl. corpus-parity reproducing .NET outcome table exactly for all 14 rules",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "84be1a3"
+      ],
+      "notes": "Engine parity proven; numeric/date/regex semantics matched + documented."
+    },
+    {
+      "id": 3,
+      "category": "persistence",
+      "lane_hint": "feature",
+      "description": "N3 Rule persistence + repository: Prisma rules/rule_versions/reference_data/decision_traces (versioned, effective-dated, rule body JSONB); reference-data provider; corpus importer; vocabulary PROJECTED from the entity registry (objects=entities, properties=fields) \u2014 not a separate free-text list. Integration tests against iawnode.",
+      "acceptance": [
+        "versioned/effective-dated rules round-trip",
+        "engine runs against DB-backed repo",
+        "vocabulary is a projection of the registry",
+        "tests green"
+      ],
+      "passes": true,
+      "verified_by": "144 tests; engine-over-Postgres reproduces corpus",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "2894204"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 4,
+      "category": "authoring",
+      "lane_hint": "feature",
+      "description": "N4 Authoring tooling: rule JSON-schema validation (Ajv on rule.schema.json), vocabulary linter grounding on the registry (subjects must be real entity.field; type checks), round-trip paraphraser, dry-run previewer (real engine, read-only). Tests.",
+      "acceptance": [
+        "linter rejects unknown/typo entity.field + type mismatches",
+        "schema validation works",
+        "paraphrase + dry-run work",
+        "tests green"
+      ],
+      "passes": true,
+      "verified_by": "186 tests; registry-grounded linter incl. type-aware LINT020",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "148ee47"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 5,
+      "category": "authoring",
+      "lane_hint": "feature",
+      "description": "N5 OpenAI NL interpreter: constrained NL->structured rule grounded in the registry-projected vocabulary; Ajv+lint validation gate (no silent invention; gaps surfaced); OPENAI_* from .env; deterministic stub for offline/tests.",
+      "acceptance": [
+        "NL compiles to rule using only registry terms",
+        "output validated; invalid rejected as gaps",
+        "no key in code",
+        "stub offline",
+        "tests green"
+      ],
+      "passes": true,
+      "verified_by": "212 tests + gated live; no silent invention; live PreventAction rule",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "6e0dc00"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 6,
+      "category": "api",
+      "lane_hint": "feature",
+      "description": "N6 API surface (NestJS): POST /evaluate (validate facts against registry, then evaluate -> outcomes+trace), authoring endpoints, rule governance CRUD (version/approve/effective-date), entity-registry admin (entities/fields), vocabulary projection. JWT+RBAC, Swagger, health, error filter. supertest integration tests.",
+      "acceptance": [
+        "evaluate validates+returns outcomes+trace",
+        "registry admin endpoints work + RBAC",
+        "rule governance works",
+        "swagger+health",
+        "tests green"
+      ],
+      "passes": true,
+      "verified_by": "226 tests; live evaluate PM17->CompleteHold + validation block",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "162541f"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 7,
+      "category": "ui",
+      "lane_hint": "feature",
+      "description": "N7 Repoint React UI to the Node API; adapt the Vocabulary screen to the entity-registry model: manage Entities and their typed Fields (add entity; add field by selecting the entity, not free-text path; field type + allowedValues); authoring scope + repository 'operates on' read from the registry. WCAG AA.",
+      "acceptance": [
+        "UI works against Node API end-to-end",
+        "entity/field management (no free-text dup)",
+        "authoring + repository scope from registry",
+        "build/lint/tests green"
+      ],
+      "passes": true,
+      "verified_by": "72 frontend tests; live registry CRUD + repointed UI",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "05fbcaa"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 8,
+      "category": "quality",
+      "lane_hint": "feature",
+      "description": "N8 Hardening + retire .NET: security review (G2), npm audit, perf (100+ rules within SLA), full regression, docs (README/architecture/integration/authoring/registry). Once Node is at verified parity, remove src/backend (.NET) and update docs/bootstrap.",
+      "acceptance": [
+        "security review clean",
+        "npm audit no high/critical",
+        "perf within SLA",
+        "full regression green",
+        "docs done",
+        ".NET removed after parity"
+      ],
+      "passes": true,
+      "verified_by": "server 227 + frontend 72; security/perf/docs; .NET retired",
+      "verified_at": "2026-06-18",
+      "commits": [
+        "e04e5be"
+      ],
+      "notes": ""
+    }
   ]
 }
