@@ -68,6 +68,10 @@
     "onFailure": {
       "$ref": "#/$defs/outcome",
       "description": "Outcome produced when assertion fails (required)."
+    },
+    "scope": {
+      "$ref": "#/$defs/scope",
+      "description": "Optional author-declared scope (governed metadata): the objects and property paths this rule operates on."
     }
   },
   "additionalProperties": false,
@@ -189,6 +193,23 @@
           "type": "object",
           "description": "Parameters for the recovery strategy.",
           "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "description": "An author-declared scope: the objects and full subject property paths a rule operates on. Optional governed metadata; either array may be empty or omitted.",
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Object names the rule is scoped to (e.g. \"specimen\")."
+        },
+        "properties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Full subject paths the rule is scoped to (e.g. \"specimen.age\")."
         }
       },
       "additionalProperties": false

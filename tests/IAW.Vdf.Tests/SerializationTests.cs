@@ -1,3 +1,4 @@
+using System.Text.Json;
 using IAW.Vdf.Abstractions.Conditions;
 using IAW.Vdf.Abstractions.Outcomes;
 using IAW.Vdf.Abstractions.Rules;
@@ -72,5 +73,74 @@ public sealed class SerializationTests
         var restored = RuleSerializer.DeserializeMany(json);
 
         restored.Select(r => r.Key).Should().Equal("PM17", "PM48", "BL3", "BL27");
+    }
+
+    [Fact]
+    public void Rule_with_scope_serializes_shape_and_round_trips()
+    {
+        var original = new RuleDefinition
+        {
+            Key = "SCOPE-1",
+            Name = "Scoped rule",
+            Phase = RulePhase.Validate,
+            Assert = LeafCondition.Literal("specimen.age", OperatorKind.IsPresent),
+            OnFailure = Outcome.Warning("order", "missing"),
+            Scope = new RuleScope(
+                Objects: new[] { "specimen" },
+                Properties: new[] { "specimen.age", "specimen.type" }),
+        };
+
+        var json = RuleSerializer.Serialize(original);
+
+        // Serialized shape: a top-level rule "scope" object with "objects" and "properties" arrays.
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.TryGetProperty("scope", out var scope).Should().BeTrue();
+        scope.ValueKind.Should().Be(JsonValueKind.Object);
+        scope.GetProperty("objects").EnumerateArray().Select(e => e.GetString())
+            .Should().Equal("specimen");
+        scope.GetProperty("properties").EnumerateArray().Select(e => e.GetString())
+            .Should().Equal("specimen.age", "specimen.type");
+
+        var restored = RuleSerializer.Deserialize(json);
+
+        restored.Scope.Should().NotBeNull();
+        restored.Scope!.Objects.Should().Equal("specimen");
+        restored.Scope.Properties.Should().Equal("specimen.age", "specimen.type");
+    }
+
+    [Fact]
+    public void Rule_without_scope_round_trips_with_null_scope_and_omits_property()
+    {
+        var original = TestHelpers.Pm17();
+        original.Scope.Should().BeNull();
+
+        var json = RuleSerializer.Serialize(original);
+
+        // Backward compatibility: a scopeless rule must not emit a top-level "scope" property.
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.TryGetProperty("scope", out _).Should().BeFalse();
+
+        var restored = RuleSerializer.Deserialize(json);
+        restored.Scope.Should().BeNull();
+    }
+
+    [Fact]
+    public void Legacy_json_without_scope_deserializes_to_null_scope()
+    {
+        // A pre-existing rule JSON authored before scope existed must still load (Scope == null).
+        const string legacyJson = """
+        {
+          "key": "LEGACY-1",
+          "name": "Legacy rule",
+          "phase": "Validate",
+          "assert": { "type": "leaf", "subject": "specimen.age", "operator": "IsPresent" },
+          "onFailure": { "type": "Warning", "scope": "order", "reason": "missing" }
+        }
+        """;
+
+        var restored = RuleSerializer.Deserialize(legacyJson);
+
+        restored.Key.Should().Be("LEGACY-1");
+        restored.Scope.Should().BeNull();
     }
 }

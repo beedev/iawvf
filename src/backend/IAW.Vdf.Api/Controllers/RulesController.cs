@@ -270,5 +270,7 @@ public sealed class RulesController : ControllerBase
         OnSuccess = rule.OnSuccess,
         Recover = rule.Recover,
         OnFailure = rule.OnFailure,
+        // Preserve the authored scope (governed metadata) when re-dating a version.
+        Scope = rule.Scope,
     };
 }

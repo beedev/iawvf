@@ -85,6 +85,12 @@ public sealed class VocabularyLinter
                 "onFailure"));
         }
 
+        // LINT110: Authored scope vs. referenced subjects (non-blocking).
+        // Only runs when the author declared a Scope; scopeless rules (Scope == null) are skipped,
+        // so the shipped corpus (which has no scope) is unaffected.
+        if (rule.Scope is not null)
+            LintScope(rule, findings);
+
         var isValid = !findings.Any(f => f.Severity == FindingSeverity.Error);
         return new LintReport(isValid, findings);
     }
@@ -259,6 +265,85 @@ public sealed class VocabularyLinter
                     "recover.parameters.Reference"));
             }
         }
+    }
+
+    /// <summary>
+    /// LINT110 (Warning, non-blocking): cross-checks the author-declared <see cref="RuleScope"/> against
+    /// the subjects the rule actually references. A finding is raised when a referenced subject's object
+    /// (the first dotted segment, with a trailing <c>[]</c> stripped) is not declared in
+    /// <see cref="RuleScope.Objects"/>, or — when <see cref="RuleScope.Properties"/> is non-empty — when a
+    /// referenced subject path is not among the declared properties. Never produces an Error, so it cannot
+    /// reject a rule; it surfaces drift between the declared scope and the rule body for governance review.
+    /// </summary>
+    private void LintScope(RuleDefinition rule, List<LintFinding> findings)
+    {
+        var scope = rule.Scope!;
+        var referencedSubjects = new List<string>();
+        CollectSubjects(rule.AppliesWhen, referencedSubjects);
+        CollectSubjects(rule.Assert, referencedSubjects);
+
+        if (referencedSubjects.Count == 0)
+            return;
+
+        var scopedObjects = new HashSet<string>(scope.Objects, StringComparer.Ordinal);
+        var scopedProperties = new HashSet<string>(scope.Properties, StringComparer.Ordinal);
+        var checkProperties = scopedProperties.Count > 0;
+
+        foreach (var subject in referencedSubjects.Distinct(StringComparer.Ordinal))
+        {
+            var objectName = ObjectName(subject);
+
+            if (!scopedObjects.Contains(objectName))
+            {
+                findings.Add(new LintFinding(
+                    FindingSeverity.Warning,
+                    "LINT110",
+                    $"Rule references object '{objectName}' (subject '{subject}') which is outside its declared scope objects [{string.Join(", ", scope.Objects)}].",
+                    "scope.objects"));
+                continue;
+            }
+
+            if (checkProperties && !scopedProperties.Contains(subject))
+            {
+                findings.Add(new LintFinding(
+                    FindingSeverity.Warning,
+                    "LINT110",
+                    $"Rule references subject '{subject}' which is outside its declared scope properties.",
+                    "scope.properties"));
+            }
+        }
+    }
+
+    /// <summary>Collects every leaf subject path referenced under a condition (recursively).</summary>
+    private static void CollectSubjects(ICondition? condition, List<string> into)
+    {
+        switch (condition)
+        {
+            case null:
+                return;
+            case LeafCondition leaf:
+                if (!string.IsNullOrWhiteSpace(leaf.Subject))
+                    into.Add(leaf.Subject);
+                break;
+            case GroupCondition group:
+                foreach (var child in group.Conditions)
+                    CollectSubjects(child, into);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The object name for a subject path: the first dotted segment with any trailing <c>[]</c>
+    /// stripped (e.g. <c>"order.product"</c> → <c>"order"</c>, <c>"order.tests[]"</c> → <c>"order"</c>,
+    /// <c>"specimens[].type"</c> → <c>"specimens"</c>).
+    /// </summary>
+    private static string ObjectName(string subject)
+    {
+        var dot = subject.IndexOf('.');
+        var head = dot < 0 ? subject : subject[..dot];
+
+        var bracket = head.IndexOf("[]", StringComparison.Ordinal);
+        return bracket < 0 ? head : head[..bracket];
     }
 
     /// <summary>

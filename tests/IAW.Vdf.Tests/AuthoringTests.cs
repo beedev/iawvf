@@ -180,6 +180,47 @@ public sealed class AuthoringTests
     }
 
     [Fact]
+    public void Linter_ScopeReferencesOutOfScopeObject_ProducesLint110Warning()
+    {
+        // Scoped to "specimen" but references "order.product" — should warn (non-blocking).
+        var rule = new RuleDefinition
+        {
+            Key = "TEST-SCOPE-1",
+            Name = "Scoped to specimen but references order",
+            Phase = RulePhase.Validate,
+            Assert = LeafCondition.Literal("order.product", OperatorKind.IsPresent),
+            OnFailure = Outcome.Warning("order", "missing"),
+            Scope = new RuleScope(Objects: new[] { "specimen" }, Properties: System.Array.Empty<string>()),
+        };
+        var linter = new VocabularyLinter(VocabularyCatalog.Default(), DiskReferenceData());
+
+        var report = linter.Lint(rule);
+
+        report.IsValid.Should().BeTrue("LINT110 is a non-blocking Warning");
+        report.Findings.Should().Contain(f => f.Severity == FindingSeverity.Warning && f.Code == "LINT110");
+    }
+
+    [Fact]
+    public void Linter_CorrectlyScopedRule_ProducesNoLint110Warning()
+    {
+        // Scoped to "specimen" and references only specimen.age — no LINT110.
+        var rule = new RuleDefinition
+        {
+            Key = "TEST-SCOPE-2",
+            Name = "Correctly scoped to specimen",
+            Phase = RulePhase.Validate,
+            Assert = LeafCondition.Literal("specimen.age", OperatorKind.IsPresent),
+            OnFailure = Outcome.Warning("order", "missing"),
+            Scope = new RuleScope(Objects: new[] { "specimen" }, Properties: new[] { "specimen.age" }),
+        };
+        var linter = new VocabularyLinter(VocabularyCatalog.Default(), DiskReferenceData());
+
+        var report = linter.Lint(rule);
+
+        report.Findings.Should().NotContain(f => f.Code == "LINT110");
+    }
+
+    [Fact]
     public void Linter_LintJson_DeserializesThenLints_PM17_Clean()
     {
         var json = LoadRuleJson("PM17");

@@ -78,4 +78,26 @@ public sealed class RuleDefinition
 
     /// <summary>The outcome produced when <see cref="Assert"/> fails and recovery did not resolve it.</summary>
     public required Outcome OnFailure { get; init; }
+
+    /// <summary>
+    /// An optional, author-declared scope describing the object(s) and property paths this rule was
+    /// written to operate on. This is governed metadata for display and lint cross-checks — it does
+    /// not affect evaluation. <see langword="null"/> (the default) means the author did not declare a
+    /// scope; existing rules without a scope remain fully backward-compatible.
+    /// </summary>
+    public RuleScope? Scope { get; init; }
 }
+
+/// <summary>
+/// An author-declared scope for a <see cref="RuleDefinition"/>: the object names and full subject
+/// property paths the rule was written to operate on. Used as governed metadata for display and
+/// non-blocking lint cross-checks. Either collection may be empty.
+/// </summary>
+/// <param name="Objects">
+/// The object names the rule is scoped to (e.g. <c>"specimen"</c>) — the first dotted segment of a
+/// subject path.
+/// </param>
+/// <param name="Properties">
+/// The full subject paths the rule is scoped to (e.g. <c>"specimen.age"</c>).
+/// </param>
+public sealed record RuleScope(IReadOnlyList<string> Objects, IReadOnlyList<string> Properties);

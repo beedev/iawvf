@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using IAW.Vdf.Api.Auth;
 using IAW.Vdf.Api.Dtos;
@@ -66,7 +67,7 @@ public sealed class AuthoringController : ControllerBase
             .Select(g => new VocabularyObjectDto
             {
                 Name = g.Key,
-                Label = TitleCase(g.Key),
+                Label = Humanize(g.Key),
                 Properties = g
                     .OrderBy(s => s.Path, StringComparer.Ordinal)
                     .Select(s => new VocabularyPropertyDto
@@ -278,9 +279,31 @@ public sealed class AuthoringController : ControllerBase
             ? path[(objectName.Length + 1)..]
             : path;
 
-    /// <summary>Title-cases an object name for display (e.g. <c>"order"</c> → <c>"Order"</c>).</summary>
-    private static string TitleCase(string name) =>
-        string.IsNullOrEmpty(name)
-            ? name
-            : CultureInfo.InvariantCulture.TextInfo.ToTitleCase(name);
+    /// <summary>
+    /// Humanizes a camelCase object name into a display label: splits on lowerUpper boundaries and
+    /// title-cases each resulting word (e.g. <c>"medicalReview"</c> → <c>"Medical Review"</c>,
+    /// <c>"priorTimepoint"</c> → <c>"Prior Timepoint"</c>, <c>"order"</c> → <c>"Order"</c>). A single
+    /// or already-lowercase token is simply capitalized.
+    /// </summary>
+    private static string Humanize(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return name;
+
+        var builder = new StringBuilder(name.Length + 4);
+
+        for (var i = 0; i < name.Length; i++)
+        {
+            var current = name[i];
+
+            // Insert a space at a lowerUpper boundary (e.g. "l" followed by "R" in "medicalReview").
+            if (i > 0 && char.IsUpper(current) && !char.IsUpper(name[i - 1]))
+                builder.Append(' ');
+
+            builder.Append(current);
+        }
+
+        // Title-case each space-delimited word so leading letters are capitalized.
+        return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(builder.ToString());
+    }
 }

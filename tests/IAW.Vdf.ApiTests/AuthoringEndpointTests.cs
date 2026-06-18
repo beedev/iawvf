@@ -61,6 +61,15 @@ public sealed class AuthoringEndpointTests : IClassFixture<VdfApiFactory>
 
         objects.Should().Contain(o => o.GetProperty("name").GetString() == "specimen");
 
+        // camelCase object names humanize into spaced, title-cased labels.
+        var medicalReview = objects.FirstOrDefault(o => o.GetProperty("name").GetString() == "medicalReview");
+        medicalReview.ValueKind.Should().Be(JsonValueKind.Object);
+        medicalReview.GetProperty("label").GetString().Should().Be("Medical Review");
+
+        var priorTimepoint = objects.FirstOrDefault(o => o.GetProperty("name").GetString() == "priorTimepoint");
+        priorTimepoint.ValueKind.Should().Be(JsonValueKind.Object);
+        priorTimepoint.GetProperty("label").GetString().Should().Be("Prior Timepoint");
+
         root.GetProperty("operators").EnumerateArray().Should().NotBeEmpty();
         root.GetProperty("outcomes").EnumerateArray().Should().NotBeEmpty();
     }

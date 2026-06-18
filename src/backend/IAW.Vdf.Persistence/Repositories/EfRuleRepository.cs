@@ -145,6 +145,8 @@ public sealed class EfRuleRepository : IRuleRepository
             }
         }
 
+        // The full rule body — including any authored Scope — is persisted in DefinitionJson (jsonb)
+        // via the canonical serializer, so scope rides along automatically with no schema migration.
         var definitionJson = RuleSerializer.Serialize(rule);
 
         var versionEntity = new RuleVersionEntity
@@ -194,6 +196,8 @@ public sealed class EfRuleRepository : IRuleRepository
             OnSuccess = rule.OnSuccess,
             Recover = rule.Recover,
             OnFailure = rule.OnFailure,
+            // Preserve the authored scope (governed metadata) across persistence round-trips.
+            Scope = rule.Scope,
         };
     }
 }

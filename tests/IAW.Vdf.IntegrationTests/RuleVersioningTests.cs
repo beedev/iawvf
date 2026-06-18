@@ -175,6 +175,56 @@ public sealed class RuleVersioningTests : IAsyncDisposable
         ruleFuture!.Version.Should().Be(2);
     }
 
+    // --- Test 4b: Authored scope persists across save/get ---
+
+    [Fact]
+    public async Task SaveAsync_WithRuleScope_GetByKey_PreservesObjectsAndProperties()
+    {
+        var key = UniqueKey("PM48-scope");
+        var rule = new RuleDefinition
+        {
+            Key = key,
+            Name = "Scoped rule for persistence",
+            Priority = 20,
+            Phase = RulePhase.Validate,
+            Enabled = true,
+            EffectiveDate = DateTimeOffset.MinValue,
+            Assert = new LeafCondition
+            {
+                Subject = "specimen.archiveRetrievalDate",
+                Operator = OperatorKind.IsPresent,
+            },
+            OnFailure = Outcome.PartialHold("test", "missing"),
+            Scope = new RuleScope(
+                Objects: new[] { "specimen" },
+                Properties: new[] { "specimen.age", "specimen.archiveRetrievalDate" }),
+        };
+
+        await _repo.SaveAsync(rule);
+
+        var loaded = await _repo.GetByKeyAsync(key);
+        loaded.Should().NotBeNull();
+        loaded!.Scope.Should().NotBeNull("the authored scope must ride along in DefinitionJson");
+        loaded.Scope!.Objects.Should().Equal("specimen");
+        loaded.Scope.Properties.Should().Equal("specimen.age", "specimen.archiveRetrievalDate");
+    }
+
+    // --- Test 4c: Backward compatibility — a scopeless rule loads with Scope == null ---
+
+    [Fact]
+    public async Task SaveAsync_WithoutScope_GetByKey_ReturnsNullScope()
+    {
+        var key = UniqueKey("PM48-noscope");
+        var rule = MakePm48(key, version: 1, effectiveDate: DateTimeOffset.MinValue);
+        rule.Scope.Should().BeNull();
+
+        await _repo.SaveAsync(rule);
+
+        var loaded = await _repo.GetByKeyAsync(key);
+        loaded.Should().NotBeNull();
+        loaded!.Scope.Should().BeNull();
+    }
+
     // --- Test 5: SQL injection safety (ruleSet with special chars) ---
 
     [Fact]

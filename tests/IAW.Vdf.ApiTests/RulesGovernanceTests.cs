@@ -15,6 +15,7 @@ public sealed class RulesGovernanceTests : IClassFixture<VdfApiFactory>, IAsyncL
 {
     private const string TestKey = "API_TEST_PM17";
     private const string LintRejectKey = "API_TEST_LINTREJECT";
+    private const string ScopeKey = "API_TEST_SCOPE";
 
     private readonly VdfApiFactory _factory;
 
@@ -28,6 +29,7 @@ public sealed class RulesGovernanceTests : IClassFixture<VdfApiFactory>, IAsyncL
     {
         await ApiTestHelpers.DeleteRuleAsync(_factory, TestKey);
         await ApiTestHelpers.DeleteRuleAsync(_factory, LintRejectKey);
+        await ApiTestHelpers.DeleteRuleAsync(_factory, ScopeKey);
     }
 
     [Fact]
@@ -99,6 +101,32 @@ public sealed class RulesGovernanceTests : IClassFixture<VdfApiFactory>, IAsyncL
         // And it must NOT have been persisted.
         var getResponse = await authorClient.GetAsync($"/api/rules/{LintRejectKey}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task CreateWithScope_Get_PreservesScope()
+    {
+        var authorClient = await ApiTestHelpers.AuthenticatedClientAsync(_factory, "author", "author-pw");
+
+        // Create a rule whose JSON carries an authored scope block.
+        var ruleJson = JsonDocument.Parse(SampleRules.Pm17WithScopeJson(ScopeKey)).RootElement;
+        var createResponse = await authorClient.PostAsJsonAsync("/api/rules", new { ruleJson });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // GET it back — the scope must survive persistence and surface in ruleJson.
+        var getResponse = await authorClient.GetAsync($"/api/rules/{ScopeKey}");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var getJson = await getResponse.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(getJson);
+        var scope = doc.RootElement.GetProperty("ruleJson").GetProperty("scope");
+        scope.ValueKind.Should().Be(JsonValueKind.Object);
+
+        var objects = scope.GetProperty("objects").EnumerateArray().Select(e => e.GetString()).ToList();
+        objects.Should().Contain("test").And.Contain("document");
+
+        var properties = scope.GetProperty("properties").EnumerateArray().Select(e => e.GetString()).ToList();
+        properties.Should().Contain("document.circledHE");
     }
 
     [Fact]
