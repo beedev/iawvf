@@ -42,6 +42,9 @@ import type { DryRunResponse, InterpretResponse, LintReport, RuleJson } from '..
 import { EXAMPLE_PROMPTS } from './examples';
 import { DryRunResults } from './DryRunResults';
 import { SaveRuleDialog } from './SaveRuleDialog';
+import { ScopeSelector } from './ScopeSelector';
+import { type ScopeSelection, EMPTY_SCOPE, isUnscoped, buildInterpretScope } from './scope';
+import { ScopeChips } from '../../components';
 
 const INTERPRETER_VERSION = 'llm-v1';
 
@@ -121,6 +124,7 @@ const useStyles = makeStyles({
     fontFamily: fonts.mono,
     fontSize: '12px',
   },
+  scopedTo: { display: 'flex', flexDirection: 'column', gap: space.sm },
 });
 
 type RuleTab = 'view' | 'edit';
@@ -131,6 +135,8 @@ export function AuthoringPage() {
   const canAuthor = hasRole('Author');
 
   const [nl, setNl] = useState('');
+  const [scope, setScope] = useState<ScopeSelection>(EMPTY_SCOPE);
+  const [interpretedScope, setInterpretedScope] = useState<ScopeSelection>(EMPTY_SCOPE);
   const [interpretation, setInterpretation] = useState<InterpretResponse | null>(null);
   const [ruleJson, setRuleJson] = useState<RuleJson | null>(null);
   const [editorText, setEditorText] = useState('');
@@ -149,9 +155,11 @@ export function AuthoringPage() {
   };
 
   const interpretMutation = useMutation({
-    mutationFn: (text: string) => api.interpret({ naturalLanguage: text }),
+    mutationFn: (text: string) =>
+      api.interpret({ naturalLanguage: text, ...buildInterpretScope(scope) }),
     onSuccess: (res) => {
       setInterpretation(res);
+      setInterpretedScope(scope);
       adoptCandidate(res.candidate);
       setTab('view');
     },
@@ -202,6 +210,34 @@ export function AuthoringPage() {
   const interpretError = interpretMutation.error as ApiError | null;
   const hasRule = effectiveRule !== null;
 
+  // Summary chips of the scope that was actually sent with the last interpret, shown near the result.
+  const interpretedChips = (() => {
+    if (isUnscoped(interpretedScope)) return [];
+    if (interpretedScope.objects.length > 0) {
+      return interpretedScope.objects.map((name) => {
+        const props = interpretedScope.properties
+          .filter((path) => path.startsWith(`${name}.`))
+          .map((path) => path.slice(name.length + 1));
+        return { name, label: name.charAt(0).toUpperCase() + name.slice(1), properties: props };
+      });
+    }
+    // Properties without an explicit object selection: group by first segment.
+    const byObject = new Map<string, string[]>();
+    for (const path of interpretedScope.properties) {
+      const dot = path.indexOf('.');
+      const name = dot === -1 ? path : path.slice(0, dot);
+      const prop = dot === -1 ? '' : path.slice(dot + 1);
+      const list = byObject.get(name) ?? [];
+      if (prop) list.push(prop);
+      byObject.set(name, list);
+    }
+    return [...byObject.entries()].map(([name, properties]) => ({
+      name,
+      label: name.charAt(0).toUpperCase() + name.slice(1),
+      properties,
+    }));
+  })();
+
   return (
     <div>
       <PageHeader
@@ -219,6 +255,8 @@ export function AuthoringPage() {
               title="Natural language"
               description="Describe the rule as you would explain it to a colleague."
             >
+              <ScopeSelector selection={scope} onChange={setScope} />
+
               <Textarea
                 className={styles.textarea}
                 textarea={{ className: styles.textareaInner }}
@@ -274,9 +312,13 @@ export function AuthoringPage() {
                     <MessageBarTitle>
                       {interpretError.status === 503
                         ? 'Interpreter unavailable'
-                        : 'Interpretation failed'}
+                        : interpretError.status === 400
+                          ? 'Unrecognized scope'
+                          : 'Interpretation failed'}
                     </MessageBarTitle>
-                    {interpretError.message}
+                    {interpretError.status === 400
+                      ? 'One or more selected objects or properties is not in the controlled vocabulary. Adjust the scope and try again.'
+                      : interpretError.message}
                   </MessageBarBody>
                 </MessageBar>
               )}
@@ -321,6 +363,18 @@ export function AuthoringPage() {
                 {interpretation && (
                   <>
                     <ConfidenceMeter confidence={interpretation.confidence} />
+
+                    {interpretedChips.length > 0 && (
+                      <div className={styles.scopedTo}>
+                        <Text className={styles.flowLabel} as="p">
+                          Scoped to
+                        </Text>
+                        <ScopeChips
+                          items={interpretedChips}
+                          ariaLabel="Scope used for this interpretation"
+                        />
+                      </div>
+                    )}
 
                     {(interpretation.unmappedPhrases.length > 0 ||
                       interpretation.gaps.length > 0) && (

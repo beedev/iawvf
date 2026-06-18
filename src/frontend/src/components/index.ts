@@ -7,3 +7,10 @@ export { Panel } from './Panel';
 export { Reveal } from './Reveal';
 export { LoadingState, EmptyState, ErrorState } from './States';
 export { PageHeader } from './PageHeader';
+export {
+  ScopeChips,
+  ObjectScope,
+  type ScopeChipItem,
+  type ScopeChipsProps,
+  type ObjectScopeProps,
+} from './ObjectScope';

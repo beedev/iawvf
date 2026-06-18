@@ -26,6 +26,16 @@ export interface LoginResponse {
 
 export interface InterpretRequest {
   naturalLanguage: string;
+  /**
+   * Optional object-level scope (object names, e.g. `"specimen"`). When present, the interpreter is
+   * constrained to these objects' vocabulary. Mutually preferred below {@link properties}.
+   */
+  objects?: string[];
+  /**
+   * Optional property-level scope (full property paths, e.g. `"specimen.fixationTime"`). When present,
+   * the interpreter is narrowed to just these properties. Takes precedence over {@link objects}.
+   */
+  properties?: string[];
 }
 
 /** A rule definition body is free-form JSON; we keep it as an opaque object for round-tripping. */
@@ -40,6 +50,32 @@ export interface InterpretResponse {
   unmappedPhrases: string[];
   /** Identified gaps requiring author clarification. */
   gaps: string[];
+}
+
+/** A single addressable property within a vocabulary object (e.g. `specimen.fixationTime`). */
+export interface VocabularyProperty {
+  /** Fully-qualified path used as a rule `subject` / interpret `properties` entry. */
+  path: string;
+  /** Property name relative to its object (may be dotted, e.g. `client.nyStatus`). */
+  name: string;
+  /** Coarse data type for display (e.g. `Number`, `String`, `Date`, `Boolean`). */
+  dataType: string;
+}
+
+/** A top-level domain object (specimen, order, test…) and its addressable properties. */
+export interface VocabularyObject {
+  /** Object identifier used as an interpret `objects` entry (e.g. `specimen`). */
+  name: string;
+  /** Human-facing label (e.g. `Specimen`). */
+  label: string;
+  properties: VocabularyProperty[];
+}
+
+/** The controlled authoring vocabulary tree plus the operator and outcome catalogs. */
+export interface VocabularyResponse {
+  objects: VocabularyObject[];
+  operators: string[];
+  outcomes: string[];
 }
 
 export type LintSeverity = 'Error' | 'Warning';

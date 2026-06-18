@@ -15,6 +15,7 @@ import type {
   RuleJson,
   RuleMutationResponse,
   RuleSummary,
+  VocabularyResponse,
 } from '../types/api';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────────────────────
@@ -24,6 +25,11 @@ export function login(body: LoginRequest): Promise<LoginResponse> {
 }
 
 // ── Authoring ─────────────────────────────────────────────────────────────────────────────────
+
+/** The controlled authoring vocabulary (objects, properties, operators, outcomes). Any role. */
+export function getVocabulary(signal?: AbortSignal): Promise<VocabularyResponse> {
+  return request<VocabularyResponse>('/api/authoring/vocabulary', { signal });
+}
 
 export function interpret(
   body: InterpretRequest,

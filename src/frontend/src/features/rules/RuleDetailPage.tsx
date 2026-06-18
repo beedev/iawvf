@@ -18,6 +18,7 @@ import {
   TextGrammarWandRegular,
   ToggleLeftRegular,
   ToggleRightRegular,
+  CubeRegular,
 } from '@fluentui/react-icons';
 import { fonts, radius, space } from '../../theme/tokens';
 import {
@@ -28,10 +29,12 @@ import {
   LoadingState,
   ErrorState,
   Reveal,
+  ObjectScope,
 } from '../../components';
 import { api, type ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import type { RuleJson } from '../../lib/types/api';
+import { extractRuleScope } from '../../lib/ruleScope';
 
 const useStyles = makeStyles({
   body: {
@@ -48,6 +51,7 @@ const useStyles = makeStyles({
     alignItems: 'start',
     '@media (max-width: 1000px)': { gridTemplateColumns: '1fr' },
   },
+  leftCol: { display: 'flex', flexDirection: 'column', gap: space.xl, minWidth: 0 },
   side: { display: 'flex', flexDirection: 'column', gap: space.xl },
   metaRow: { display: 'flex', justifyContent: 'space-between', gap: space.md, paddingBlock: '6px' },
   metaLabel: { color: tokens.colorNeutralForeground3, fontSize: '12.5px' },
@@ -150,6 +154,7 @@ export function RuleDetailPage() {
   const detail = detailQuery.data;
   const s = detail.summary;
   const isApproved = detail.approvedBy !== null;
+  const ruleScope = extractRuleScope(detail.ruleJson);
   const govMutating =
     approveMutation.isPending || promoteMutation.isPending || disableMutation.isPending;
   const govError = (approveMutation.error ??
@@ -175,39 +180,52 @@ export function RuleDetailPage() {
 
       <div className={styles.body}>
         <div className={styles.grid}>
-          {/* Left: structured rule + paraphrase */}
-          <Reveal>
-            <Panel
-              eyebrow="Definition"
-              title="Structured rule"
-              actions={
-                <Button
-                  icon={
-                    paraphraseMutation.isPending ? (
-                      <Spinner size="tiny" />
-                    ) : (
-                      <TextGrammarWandRegular />
-                    )
-                  }
-                  onClick={() => detail.ruleJson && paraphraseMutation.mutate(detail.ruleJson)}
-                  disabled={!detail.ruleJson || paraphraseMutation.isPending}
-                >
-                  Paraphrase
-                </Button>
-              }
-            >
-              {paraphrase && <p className={styles.paraphrase}>{paraphrase}</p>}
-              {detail.ruleJson ? (
-                <JsonView value={detail.ruleJson} label={`Rule ${s.key} definition (JSON)`} />
-              ) : (
-                <Text>No rule body available.</Text>
-              )}
-            </Panel>
-          </Reveal>
+          {/* Left: derived object scope → then structured rule + paraphrase */}
+          <div className={styles.leftCol}>
+            <Reveal>
+              <Panel
+                eyebrow="Scope"
+                title="Operates on"
+                description="The object(s) and properties this rule reads, derived from its definition."
+                actions={<CubeRegular fontSize={20} aria-hidden />}
+              >
+                <ObjectScope items={ruleScope.objects} outcomeScope={ruleScope.outcomeScope} />
+              </Panel>
+            </Reveal>
+
+            <Reveal index={1}>
+              <Panel
+                eyebrow="Definition"
+                title="Structured rule"
+                actions={
+                  <Button
+                    icon={
+                      paraphraseMutation.isPending ? (
+                        <Spinner size="tiny" />
+                      ) : (
+                        <TextGrammarWandRegular />
+                      )
+                    }
+                    onClick={() => detail.ruleJson && paraphraseMutation.mutate(detail.ruleJson)}
+                    disabled={!detail.ruleJson || paraphraseMutation.isPending}
+                  >
+                    Paraphrase
+                  </Button>
+                }
+              >
+                {paraphrase && <p className={styles.paraphrase}>{paraphrase}</p>}
+                {detail.ruleJson ? (
+                  <JsonView value={detail.ruleJson} label={`Rule ${s.key} definition (JSON)`} />
+                ) : (
+                  <Text>No rule body available.</Text>
+                )}
+              </Panel>
+            </Reveal>
+          </div>
 
           {/* Right: governance + provenance */}
           <div className={styles.side}>
-            <Reveal index={1}>
+            <Reveal index={2}>
               <Panel eyebrow="Status" title="Governance">
                 <div>
                   <MetaRow
@@ -305,7 +323,7 @@ export function RuleDetailPage() {
               </Panel>
             </Reveal>
 
-            <Reveal index={2}>
+            <Reveal index={3}>
               <Panel eyebrow="Provenance" title="Authoring trail">
                 <div>
                   <MetaRow label="Authored by" value={detail.authoredBy ?? '—'} />
