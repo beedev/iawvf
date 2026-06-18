@@ -40,6 +40,72 @@ back for human confirmation, dry-run against fixtures, and governed (versioned/a
 The LLM is **never** in the runtime decision path — every runtime decision is deterministic and
 config-driven.
 
+## Documentation
+
+| Document | Description |
+|---|---|
+| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Complete end-user guide: sign-in, every screen, role-based walkthroughs, troubleshooting, and glossary. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architecture reference with Mermaid diagrams: system overview, evaluation pipeline, authoring loop, and registry data model. |
+| [`docs/RULE_AUTHORING_GUIDE.md`](docs/RULE_AUTHORING_GUIDE.md) | API-level rule authoring walkthrough with shell examples and worked rule samples. |
+| [`docs/ENTITY_REGISTRY_GUIDE.md`](docs/ENTITY_REGISTRY_GUIDE.md) | Entity registry guide: lifecycle, endpoints, fact validation, and host integration. |
+| [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) | How a host application integrates with the VDF over REST. |
+| [`docs/API.md`](docs/API.md) | Curated API reference with endpoint tables, request/response examples, and error model. |
+
+---
+
+## Architecture
+
+The system diagram below shows how the React SPA, NestJS API, core modules, and Postgres relate.
+Full diagrams (evaluation pipeline, authoring loop, registry data model) are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+```mermaid
+flowchart TB
+    subgraph UI ["React SPA (localhost:5173)"]
+        direction TB
+        A1[Authoring<br/>describe & interpret]
+        A2[Repository<br/>browse & govern]
+        A3[Evaluate<br/>run facts through rules]
+        A4[Vocabulary<br/>manage registry — Admin]
+        A5[API Reference<br/>live OpenAPI]
+    end
+
+    subgraph API ["NestJS API (localhost:4000)"]
+        direction TB
+        B1[Auth + JWT / RBAC]
+        B2[Evaluate]
+        B3[Authoring]
+        B4[Rules governance]
+        B5[Registry]
+    end
+
+    subgraph Core ["Core modules"]
+        direction TB
+        C1[VDF Engine<br/>pure — no NestJS deps]
+        C2[Entity Registry<br/>RegistryService · FactValidation]
+        C3[Rule Repository<br/>versioned · effective-dated]
+        C4[Authoring tools<br/>Linter · Paraphraser · DryRunner]
+        C5[LLM Interpreter<br/>compile-time only]
+    end
+
+    DB[(PostgreSQL<br/>via Prisma)]
+    OAI([OpenAI API<br/>authoring-time only])
+
+    UI -->|REST + Bearer JWT| API
+    B2 --> C1
+    B2 --> C2
+    B3 --> C4
+    B3 --> C5
+    B4 --> C3
+    B5 --> C2
+    C1 --> C3
+    C1 --> C2
+    C5 -.->|optional| OAI
+    Core --> DB
+```
+
+---
+
 ## Architecture — modules & responsibilities
 
 The backend is a NestJS application at `src/server`. It is organized into feature modules, each owning a

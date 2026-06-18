@@ -22,3 +22,6 @@ test-results/
 
 # OS
 .DS_Store
+
+# Local agent/project memory (not part of the deliverable)
+.claude/

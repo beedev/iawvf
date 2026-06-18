@@ -8,6 +8,145 @@ engine, persistence, and the compile-time authoring loop — and explains how th
 core guarantees (**determinism, explainability, auditability**) are enforced by
 construction.
 
+---
+
+## Diagrams
+
+Four Mermaid diagrams follow. GitHub renders `mermaid` fenced blocks natively. The ASCII
+pipeline diagram in section 1 is kept as a text fallback.
+
+### Diagram 1 — System overview
+
+```mermaid
+flowchart TB
+    subgraph UI ["React SPA (localhost:5173)"]
+        direction TB
+        A1[Authoring<br/>describe & interpret]
+        A2[Repository<br/>browse & govern]
+        A3[Evaluate<br/>run facts through rules]
+        A4[Vocabulary<br/>manage registry — Admin]
+        A5[API Reference<br/>live OpenAPI]
+    end
+
+    subgraph API ["NestJS API (localhost:4000)"]
+        direction TB
+        B1[Auth + JWT / RBAC<br/>POST /api/auth/login]
+        B2[Evaluate<br/>POST /api/evaluate]
+        B3[Authoring<br/>interpret · lint · paraphrase · dry-run]
+        B4[Rules governance<br/>create · approve · promote · disable]
+        B5[Registry<br/>entities · fields · vocabulary · validate]
+    end
+
+    subgraph Core ["Core modules"]
+        direction TB
+        C1[VDF Engine<br/>pure — no NestJS deps]
+        C2[Entity Registry<br/>RegistryService · FactValidationService]
+        C3[Rule Repository<br/>versioned · effective-dated · Postgres]
+        C4[Authoring tools<br/>VocabularyLinter · Paraphraser · DryRunner]
+        C5[LLM Interpreter<br/>OpenAI — compile-time only]
+    end
+
+    DB[(PostgreSQL<br/>via Prisma)]
+    OAI([OpenAI API<br/>authoring-time only])
+
+    UI -->|REST + Bearer JWT| API
+    B2 --> C1
+    B2 --> C2
+    B3 --> C4
+    B3 --> C5
+    B4 --> C3
+    B5 --> C2
+    C1 --> C3
+    C1 --> C2
+    C5 -->|grounded on live vocab| C2
+    C5 -.->|optional live calls| OAI
+    Core --> DB
+```
+
+### Diagram 2 — Evaluation pipeline
+
+```mermaid
+flowchart TD
+    IN([Facts document<br/>factsJson + asOf + ruleSet]) --> VAL
+
+    VAL["Validate facts<br/>FactValidationService<br/>Ajv 2020 — per-entity JSON Schema<br/>lenient: unknown top-level keys skipped<br/>strict mode → 422 on error"]
+    VAL --> SEL
+
+    SEL["Select rules<br/>selectRules<br/>enabled = true<br/>effectiveDate ≤ asOf < expiryDate<br/>optional ruleSet filter"]
+    SEL --> ORD
+
+    ORD["Order rules deterministically<br/>Phase: Derive → Validate → Route<br/>then Priority asc<br/>then Key asc"]
+    ORD --> WHEN
+
+    WHEN{"WHEN gate<br/>appliesWhen<br/>Absent → always applies"}
+    WHEN -->|gate passes| ASSERT
+    WHEN -->|gate fails| NOTAPPLIED["Record: applied = false<br/>skip rule"]
+
+    ASSERT{"assert<br/>Absent → fail-through<br/>All / Any / Not tree<br/>leaf: subject operator value"}
+    ASSERT -->|passes| ONSUCCESS["onSuccess outcome<br/>if Derivation → write-back to facts clone"]
+    ASSERT -->|fails| RECOVER{"recover?<br/>strategy available"}
+    RECOVER -->|resolves| SUPPRESSED["Suppressed<br/>failure hidden"]
+    RECOVER -->|fails / absent| ONFAILURE["onFailure outcome<br/>if Derivation → write-back to facts clone"]
+
+    ONSUCCESS --> TRACE
+    ONFAILURE --> TRACE
+    SUPPRESSED --> TRACE
+    NOTAPPLIED --> TRACE
+
+    TRACE["Record DecisionTrace<br/>ruleKey · version · phase<br/>applied · assertResult<br/>per-leaf: subject·operator·resolvedLeft·resolvedRight·result<br/>produced outcome"]
+    TRACE --> MORE{"More rules?"}
+    MORE -->|yes| WHEN
+    MORE -->|no| OUT
+
+    OUT(["Return EvaluationResult<br/>outcomes · trace · factsAfter · validation"])
+```
+
+### Diagram 3 — Authoring loop
+
+```mermaid
+flowchart LR
+    NL([Natural language<br/>author's plain English]) --> INTERP
+
+    INTERP["Interpret<br/>RuleInterpreterService<br/>OpenAI — grounded on live registry vocab<br/>offline stub fallback<br/>POST /api/authoring/interpret"]
+    INTERP -->|candidate + confidence<br/>unmappedPhrases · gaps| GATE
+
+    GATE["Interpretation gate<br/>RuleInterpretationGate<br/>1 schema validation<br/>2 deserialize to RuleDefinition<br/>3 lint — zero Error findings required<br/>fails → candidate = null, confidence = 0"]
+    GATE -->|candidate passes gate| CONFIRM
+
+    CONFIRM["Author confirms<br/>Paraphrase — round-trip English<br/>Dry-run — fixture corpus preview<br/>(both are no-side-effects calls)"]
+    CONFIRM -->|satisfied| GOVERN
+
+    GOVERN["Govern<br/>POST /api/rules — Author<br/>re-lints first; 422 on error<br/>POST /api/rules/:key/approve — Reviewer<br/>POST /api/rules/:key/promote — Admin<br/>POST /api/rules/:key/disable — Admin"]
+    GOVERN --> REPO
+
+    REPO[("Rule repository<br/>rule + rule_version<br/>versioned · effective-dated<br/>immutable bodies in JSONB<br/>provenance: authoredBy · authorNl<br/>approvedBy · approvedAt")]
+```
+
+### Diagram 4 — Registry-first data model
+
+```mermaid
+flowchart TB
+    subgraph REG ["Entity Registry (Postgres)"]
+        direction TB
+        ENT["registry_entity<br/>key lower-case unique<br/>label · description<br/>status: Active → Deprecated → Retired<br/>createdBy · approvedBy"]
+        FLD["registry_field<br/>name dot-separated path<br/>dataType: String | Number | Date | Boolean | Collection<br/>required · allowedValues<br/>status: Active → Deprecated → Retired"]
+        ENT -->|1 to many| FLD
+    end
+
+    REG -->|projects Active fields on Active entities| VOC
+    REG -->|compiles per-entity JSON Schema| AJVVAL
+
+    VOC["Vocabulary projection<br/>GET /api/registry/vocabulary<br/>object → property tree<br/>operators list · outcomes list<br/>grounds authoring + LLM"]
+    AJVVAL["Fact validation<br/>Ajv 2020 validators<br/>cached · rebuilt lazily on registry change<br/>lenient at boundary<br/>strict within known entity"]
+
+    VOC -->|grounds| AUTHOR["Rule authoring<br/>interpret · lint · paraphrase · dry-run"]
+    AJVVAL -->|validates| EVAL["Runtime evaluation<br/>VdfEngine<br/>POST /api/evaluate"]
+    AUTHOR -->|saves versioned rules| RULEREPO[("rule / rule_version<br/>RuleRepository")]
+    RULEREPO -->|getActiveRulesAsync| EVAL
+```
+
+---
+
 > Source of truth for everything below is `src/server/src` (NestJS) and
 > `src/server/prisma/schema.prisma` (Postgres via Prisma).
 
