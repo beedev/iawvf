@@ -34,7 +34,7 @@ import {
 import { api, type ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import type { RuleJson } from '../../lib/types/api';
-import { extractRuleScope } from '../../lib/ruleScope';
+import { extractRuleScope, readAuthoredScope } from '../../lib/ruleScope';
 
 const useStyles = makeStyles({
   body: {
@@ -80,6 +80,23 @@ const useStyles = makeStyles({
     lineHeight: 1.5,
   },
   govActions: { display: 'flex', flexDirection: 'column', gap: space.sm },
+  derivedScope: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space.sm,
+    marginTop: space.lg,
+    paddingTop: space.lg,
+    borderTopWidth: '1px',
+    borderTopStyle: 'solid',
+    borderTopColor: tokens.colorNeutralStroke3,
+  },
+  derivedLabel: {
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color: tokens.colorNeutralForeground4,
+  },
 });
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -154,7 +171,12 @@ export function RuleDetailPage() {
   const detail = detailQuery.data;
   const s = detail.summary;
   const isApproved = detail.approvedBy !== null;
-  const ruleScope = extractRuleScope(detail.ruleJson);
+  // Prefer the AUTHORED scope (deliberately attached via the Scope selector, persisted on the rule);
+  // fall back to scope DERIVED from the rule's conditions when none was authored.
+  const authoredScope = readAuthoredScope(detail.ruleJson);
+  const derivedScope = extractRuleScope(detail.ruleJson);
+  const primaryScope = authoredScope ?? derivedScope;
+  const isAuthoredScope = authoredScope !== null;
   const govMutating =
     approveMutation.isPending || promoteMutation.isPending || disableMutation.isPending;
   const govError = (approveMutation.error ??
@@ -186,10 +208,42 @@ export function RuleDetailPage() {
               <Panel
                 eyebrow="Scope"
                 title="Operates on"
-                description="The object(s) and properties this rule reads, derived from its definition."
-                actions={<CubeRegular fontSize={20} aria-hidden />}
+                description={
+                  isAuthoredScope
+                    ? 'The object(s) and properties the author scoped this rule to.'
+                    : 'The object(s) and properties this rule reads, derived from its definition.'
+                }
+                actions={
+                  isAuthoredScope ? (
+                    <StatusBadge kind="info">Authored</StatusBadge>
+                  ) : (
+                    <CubeRegular fontSize={20} aria-hidden />
+                  )
+                }
               >
-                <ObjectScope items={ruleScope.objects} outcomeScope={ruleScope.outcomeScope} />
+                <ObjectScope
+                  items={primaryScope.objects}
+                  outcomeScope={primaryScope.outcomeScope}
+                  emptyText={
+                    isAuthoredScope
+                      ? 'No object scope was authored for this rule.'
+                      : undefined
+                  }
+                />
+
+                {/* When the author scoped the rule explicitly, also surface the scope DERIVED from its
+                    conditions as context — so reviewers can reconcile intent against the definition. */}
+                {isAuthoredScope && derivedScope.objects.length > 0 && (
+                  <div className={styles.derivedScope}>
+                    <Text className={styles.derivedLabel} as="p">
+                      Referenced in conditions
+                    </Text>
+                    <ObjectScope
+                      items={derivedScope.objects}
+                      outcomeScope={derivedScope.outcomeScope}
+                    />
+                  </div>
+                )}
               </Panel>
             </Reveal>
 

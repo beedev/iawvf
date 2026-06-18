@@ -13,7 +13,7 @@
  * (order | test | specimen) which we surface as additional context.
  */
 
-import type { RuleJson } from './types/api';
+import type { RuleJson, RuleScopeDefinition } from './types/api';
 
 /** One object the rule touches, with the distinct property names referenced beneath it. */
 export interface RuleScopeObject {
@@ -40,6 +40,10 @@ function toLabel(name: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 /**
@@ -111,4 +115,57 @@ export function extractRuleScope(rule: RuleJson | null | undefined): RuleScope {
   const outcomeScope = readOutcomeScope(rule.onFailure) ?? readOutcomeScope(rule.onSuccess);
 
   return outcomeScope ? { objects, outcomeScope } : { objects };
+}
+
+/**
+ * Read the AUTHORED scope an author attached via the Scope selector (persisted under the rule's
+ * optional `scope` key), mapping it into the same {@link RuleScope} shape used for derived scope so
+ * both render through one component. Object names are humanized with {@link toLabel} (consistent
+ * with the derived-scope vocabulary); each authored property PATH is shown relative to its object.
+ *
+ * Returns `null` when the rule carries no authored scope (no `scope`, or one with neither objects
+ * nor properties) — callers then fall back to {@link extractRuleScope}.
+ */
+export function readAuthoredScope(rule: RuleJson | null | undefined): RuleScope | null {
+  if (!isRecord(rule)) return null;
+
+  const scope = rule.scope as RuleScopeDefinition | undefined;
+  if (!isRecord(scope)) return null;
+
+  const objectNames = Array.isArray(scope.objects) ? scope.objects.filter(isNonEmptyString) : [];
+  const propertyPaths = Array.isArray(scope.properties)
+    ? scope.properties.filter(isNonEmptyString)
+    : [];
+  if (objectNames.length === 0 && propertyPaths.length === 0) return null;
+
+  // Preserve insertion order, de-duplicating object names and their object-relative properties.
+  const order: string[] = [];
+  const byName = new Map<string, { label: string; properties: string[] }>();
+
+  const ensure = (name: string): { label: string; properties: string[] } => {
+    let entry = byName.get(name);
+    if (!entry) {
+      entry = { label: toLabel(name), properties: [] };
+      byName.set(name, entry);
+      order.push(name);
+    }
+    return entry;
+  };
+
+  for (const name of objectNames) ensure(name);
+
+  for (const path of propertyPaths) {
+    const dot = path.indexOf('.');
+    const name = dot === -1 ? path : path.slice(0, dot);
+    const property = dot === -1 ? null : path.slice(dot + 1);
+    const entry = ensure(name);
+    if (property && !entry.properties.includes(property)) entry.properties.push(property);
+  }
+
+  const objects: RuleScopeObject[] = order.map((name) => {
+    const entry = byName.get(name)!;
+    return { name, label: entry.label, properties: entry.properties };
+  });
+
+  return { objects };
 }

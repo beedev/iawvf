@@ -38,8 +38,27 @@ export interface InterpretRequest {
   properties?: string[];
 }
 
-/** A rule definition body is free-form JSON; we keep it as an opaque object for round-tripping. */
-export type RuleJson = Record<string, unknown>;
+/**
+ * The AUTHORED scope an author deliberately attached to a rule via the Scope selector. Round-trips
+ * through save/get on the rule definition under the optional `scope` key (see {@link RuleJson}).
+ * `objects` are object names (e.g. `"specimen"`); `properties` are full property paths
+ * (e.g. `"specimen.fixationTime"`). Distinct from scope DERIVED from a rule's conditions.
+ */
+export interface RuleScopeDefinition {
+  objects: string[];
+  properties: string[];
+}
+
+/**
+ * A rule definition body is free-form JSON; we keep it as an opaque object for round-tripping.
+ *
+ * It MAY carry an optional `scope` ({@link RuleScopeDefinition}) — the author's deliberate scope
+ * selection, persisted by the backend. We surface it as a known optional key while leaving the rest
+ * of the body open.
+ */
+export type RuleJson = Record<string, unknown> & {
+  scope?: RuleScopeDefinition;
+};
 
 export interface InterpretResponse {
   /** The compiled candidate rule, or null if the model produced none. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractRuleScope } from './ruleScope';
+import { extractRuleScope, readAuthoredScope } from './ruleScope';
 import type { RuleJson } from './types/api';
 
 // PM48 — leaf-only `appliesWhen` + leaf `assert`, both on `specimen`.
@@ -101,5 +101,81 @@ describe('extractRuleScope', () => {
   it('returns an empty scope for a null / malformed rule', () => {
     expect(extractRuleScope(null)).toEqual({ objects: [] });
     expect(extractRuleScope({})).toEqual({ objects: [] });
+  });
+});
+
+
+describe('readAuthoredScope', () => {
+  it('returns null when the rule carries no authored scope', () => {
+    expect(readAuthoredScope(PM48)).toBeNull();
+    expect(readAuthoredScope(null)).toBeNull();
+    expect(readAuthoredScope({})).toBeNull();
+  });
+
+  it('returns null for an empty authored scope (no objects, no properties)', () => {
+    expect(readAuthoredScope({ ...PM48, scope: { objects: [], properties: [] } })).toBeNull();
+  });
+
+  it('maps authored objects + property paths into labelled, object-relative scope', () => {
+    const rule: RuleJson = {
+      ...PM48,
+      scope: { objects: ['specimen'], properties: ['specimen.age', 'specimen.fixationTime'] },
+    };
+
+    const scope = readAuthoredScope(rule);
+
+    expect(scope).not.toBeNull();
+    expect(scope!.objects).toHaveLength(1);
+    const specimen = scope!.objects[0];
+    expect(specimen.name).toBe('specimen');
+    expect(specimen.label).toBe('Specimen');
+    expect(specimen.properties).toEqual(['age', 'fixationTime']);
+  });
+
+  it('includes an authored object even when no properties were narrowed', () => {
+    const rule: RuleJson = { ...PM48, scope: { objects: ['order'], properties: [] } };
+
+    const scope = readAuthoredScope(rule);
+
+    expect(scope!.objects).toEqual([{ name: 'order', label: 'Order', properties: [] }]);
+  });
+
+  it('infers objects from property paths when objects are omitted', () => {
+    const rule: RuleJson = {
+      ...PM48,
+      scope: { objects: [], properties: ['test.code', 'test.specimen.type'] },
+    };
+
+    const scope = readAuthoredScope(rule);
+
+    expect(scope!.objects).toHaveLength(1);
+    expect(scope!.objects[0].name).toBe('test');
+    expect(scope!.objects[0].properties).toEqual(['code', 'specimen.type']);
+  });
+});
+
+describe('authored scope is preferred over derived scope', () => {
+  it('prefers the authored scope when present, else falls back to derived', () => {
+    // Authored on `order`, but conditions reference `specimen` — authored must win.
+    const rule: RuleJson = { ...PM48, scope: { objects: ['order'], properties: [] } };
+
+    const authored = readAuthoredScope(rule);
+    const derived = extractRuleScope(rule);
+    const primary = authored ?? derived;
+
+    expect(authored).not.toBeNull();
+    expect(primary.objects.map((o) => o.name)).toEqual(['order']);
+    // Derived still reflects the conditions, available as secondary context.
+    expect(derived.objects.map((o) => o.name)).toEqual(['specimen']);
+  });
+
+  it('falls back to derived scope when nothing was authored', () => {
+    const authored = readAuthoredScope(PM48);
+    const derived = extractRuleScope(PM48);
+    const primary = authored ?? derived;
+
+    expect(authored).toBeNull();
+    expect(primary).toBe(derived);
+    expect(primary.objects.map((o) => o.name)).toEqual(['specimen']);
   });
 });

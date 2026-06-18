@@ -43,7 +43,13 @@ import { EXAMPLE_PROMPTS } from './examples';
 import { DryRunResults } from './DryRunResults';
 import { SaveRuleDialog } from './SaveRuleDialog';
 import { ScopeSelector } from './ScopeSelector';
-import { type ScopeSelection, EMPTY_SCOPE, isUnscoped, buildInterpretScope } from './scope';
+import {
+  type ScopeSelection,
+  EMPTY_SCOPE,
+  isUnscoped,
+  buildInterpretScope,
+  buildSaveRuleJson,
+} from './scope';
 import { ScopeChips } from '../../components';
 
 const INTERPRETER_VERSION = 'llm-v1';
@@ -553,8 +559,10 @@ export function AuthoringPage() {
       {ruleJson && (
         <SaveRuleDialog
           open={saveOpen}
+          /* The Scope selector is the source of truth for a rule's scope: merge the current
+             selection onto the rule body before saving (respecting any hand-typed `scope`). */
+          ruleJson={buildSaveRuleJson(ruleJson, scope)}
           onOpenChange={setSaveOpen}
-          ruleJson={ruleJson}
           authorNl={nl.trim() || null}
           interpreterVersion={INTERPRETER_VERSION}
         />

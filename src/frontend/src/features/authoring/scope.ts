@@ -1,4 +1,9 @@
-import type { InterpretRequest, VocabularyObject } from '../../lib/types/api';
+import type {
+  InterpretRequest,
+  RuleJson,
+  RuleScopeDefinition,
+  VocabularyObject,
+} from '../../lib/types/api';
 import type { ScopeChipItem } from '../../components';
 
 /**
@@ -31,6 +36,38 @@ export function buildInterpretScope(
   if (selection.properties.length > 0) return { properties: selection.properties };
   if (selection.objects.length > 0) return { objects: selection.objects };
   return {};
+}
+
+/**
+ * Attach the author's chosen scope to a rule body just before saving, returning a NEW rule object
+ * (the input is never mutated). The Scope selector is the source of truth for a rule's scope, so:
+ *
+ *   1. If the rule JSON ALREADY contains a `scope` key (the author typed one by hand in the Edit
+ *      tab), we RESPECT it and leave the body untouched — explicit hand-editing wins.
+ *   2. Otherwise, if the selection is NON-EMPTY, we inject
+ *      `scope = { objects: [...selectedObjectNames], properties: [...selectedPropertyPaths] }`.
+ *   3. Otherwise (unscoped selection, no typed scope) we OMIT `scope` entirely — never send an
+ *      empty `{ objects: [], properties: [] }`.
+ *
+ * Every other field of the rule is preserved verbatim. Pure & React-free for unit testing.
+ */
+export function buildSaveRuleJson(rule: RuleJson, selection: ScopeSelection): RuleJson {
+  // (1) Respect a scope the author typed into the Edit tab — explicit hand-editing is authoritative.
+  if (Object.prototype.hasOwnProperty.call(rule, 'scope')) {
+    return { ...rule };
+  }
+
+  // (3) Unscoped selection → omit `scope` rather than sending an empty object.
+  if (isUnscoped(selection)) {
+    return { ...rule };
+  }
+
+  // (2) Inject the selection as the authored scope, preserving the rest of the rule untouched.
+  const scope: RuleScopeDefinition = {
+    objects: [...selection.objects],
+    properties: [...selection.properties],
+  };
+  return { ...rule, scope };
 }
 
 /**
