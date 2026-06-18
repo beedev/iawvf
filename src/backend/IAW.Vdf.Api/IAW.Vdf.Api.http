@@ -1,6 +1,0 @@
-@IAW.Vdf.Api_HostAddress = http://localhost:5044
-
-GET {{IAW.Vdf.Api_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
