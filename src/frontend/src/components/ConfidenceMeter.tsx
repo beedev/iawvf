@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { makeStyles, tokens, Text } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens, Text } from '@fluentui/react-components';
 import { fonts, radius, space } from '../theme/tokens';
 import { useReducedMotion } from '../lib/hooks/useReducedMotion';
 
@@ -57,7 +57,7 @@ export function ConfidenceMeter({ confidence, className }: ConfidenceMeterProps)
 
   return (
     <div
-      className={`${styles.root} ${className ?? ''}`}
+      className={mergeClasses(styles.root, className)}
       role="meter"
       aria-valuenow={pct}
       aria-valuemin={0}

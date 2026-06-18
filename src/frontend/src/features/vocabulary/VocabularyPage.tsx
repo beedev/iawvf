@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   makeStyles,
+  mergeClasses,
   tokens,
   Button,
   Toaster,
@@ -297,11 +298,11 @@ export function VocabularyPage() {
                           <div
                             key={field.name}
                             role="row"
-                            className={`${styles.row} ${deprecated ? styles.rowDeprecated : ''}`}
+                            className={mergeClasses(styles.row, deprecated && styles.rowDeprecated)}
                           >
                             <div className={styles.nameCell} role="cell">
                               <span
-                                className={`${styles.fieldPath} ${deprecated ? styles.fieldPathMuted : ''}`}
+                                className={mergeClasses(styles.fieldPath, deprecated && styles.fieldPathMuted)}
                                 title={path}
                               >
                                 {path}

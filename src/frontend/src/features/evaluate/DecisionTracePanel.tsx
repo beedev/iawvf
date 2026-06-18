@@ -1,5 +1,6 @@
 import {
   makeStyles,
+  mergeClasses,
   tokens,
   Accordion,
   AccordionItem,
@@ -110,7 +111,7 @@ export function DecisionTracePanel({ trace }: { trace: DecisionTrace[] }) {
                     {t.conditions.map((c, i) => (
                       <div className={styles.cond} key={i}>
                         <span
-                          className={`${styles.condResult} ${c.result ? styles.pass : styles.fail}`}
+                          className={mergeClasses(styles.condResult, c.result ? styles.pass : styles.fail)}
                           aria-label={c.result ? 'condition met' : 'condition not met'}
                         >
                           {c.result ? (

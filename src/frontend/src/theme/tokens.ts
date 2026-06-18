@@ -2,9 +2,13 @@
  * IAW design tokens beyond Fluent's palette: a meticulous spacing scale, font families, layered
  * shadows, hairline borders, and semantic status colors for lint severities & outcome groups.
  *
- * These are plain constants (not CSS variables) consumed by `makeStyles`. Status colors are provided
- * per color-scheme so contrast stays AA in both light and dark.
+ * Spacing/radius/shadow/motion are plain constants consumed by `makeStyles`. Color accents, by
+ * contrast, are sourced from Fluent's SEMANTIC status tokens (CSS variables that the active
+ * `FluentProvider` theme resolves), so every foreground/background pair adapts to light & dark
+ * automatically and stays AA in BOTH themes — no per-scheme palette to keep in sync.
  */
+
+import { tokens } from '@fluentui/react-components';
 
 /** Font stacks. Self-hosted via @fontsource (imported in `fonts.ts`), with safe fallbacks. */
 export const fonts = {
@@ -46,86 +50,87 @@ export const shadow = {
   focus: '0 0 0 3px rgba(14, 124, 134, 0.35)',
 } as const;
 
-/** Status palette for lint severities & outcome groups (AA against the matching surface). */
-export interface StatusPalette {
-  errorFg: string;
-  errorBg: string;
-  errorBorder: string;
-  warningFg: string;
-  warningBg: string;
-  warningBorder: string;
-  successFg: string;
-  successBg: string;
-  successBorder: string;
-  infoFg: string;
-  infoBg: string;
-  infoBorder: string;
-  neutralFg: string;
-  neutralBg: string;
-  neutralBorder: string;
+/**
+ * A theme-aware accent triple (foreground / background / border). The values are Fluent semantic
+ * token references (CSS variables), so they resolve against the active light/dark theme and remain
+ * AA in both. Safe to use in `makeStyles` rules and in inline `style={}` alike.
+ */
+export interface StatusAccent {
+  fg: string;
+  bg: string;
+  border: string;
 }
 
-export const statusLight: StatusPalette = {
-  errorFg: '#9F1239',
-  errorBg: '#FCE9EE',
-  errorBorder: '#F4B8C7',
-  warningFg: '#92500A',
-  warningBg: '#FBEFDD',
-  warningBorder: '#F0CE9A',
-  successFg: '#0A6E54',
-  successBg: '#E2F4EE',
-  successBorder: '#A9DCCB',
-  infoFg: '#0B5563',
-  infoBg: '#E4F2F3',
-  infoBorder: '#A0D6D9',
-  neutralFg: '#41525A',
-  neutralBg: '#EEF2F3',
-  neutralBorder: '#D2DCDF',
-};
-
-export const statusDark: StatusPalette = {
-  errorFg: '#FCA5BC',
-  errorBg: '#3A1420',
-  errorBorder: '#7A2C44',
-  warningFg: '#F4C886',
-  warningBg: '#33240F',
-  warningBorder: '#6E5223',
-  successFg: '#7FD9BF',
-  successBg: '#0E2A23',
-  successBorder: '#235A4A',
-  infoFg: '#8FD4DA',
-  infoBg: '#0C2A30',
-  infoBorder: '#235860',
-  neutralFg: '#AEBEC4',
-  neutralBg: '#1C272B',
-  neutralBorder: '#33444A',
-};
-
 /**
- * Outcome groups → a stable accent color, so the Evaluate playground reads at a glance.
+ * Outcome groups → a stable, theme-aware accent, so the Evaluate playground reads at a glance.
  *
  * Keys mirror the API's `OutcomeGroup` enum string values (Validation / Workflow / Entity / Control /
  * Derivation / None). The legacy effect-name keys (Hold / Route / Flag / Derive / Annotate) are
  * retained for backward compatibility with any older consumer; both resolve to the same accents.
  *
- * Accent intent: Validation (held/flagged) = amber, Control (blocked) = red, Workflow (routed) =
- * teal/info, Entity (records created) = brand, Derivation (computed) = green, None = neutral. All
- * foreground/background pairs are AA against the card surface.
+ * Accent intent: Validation (held/flagged) = warning, Control (blocked) = danger, Workflow (routed) =
+ * brand/info, Entity (records created) = brand, Derivation (computed) = success, None = neutral. Each
+ * pair is drawn from Fluent's semantic status tokens, so it is AA against the card surface in both
+ * light and dark — no hardcoded hex, no per-scheme palette.
  */
-export const outcomeGroupColors: Record<string, { fg: string; bg: string; border: string }> = {
+export const outcomeGroupColors: Record<string, StatusAccent> = {
   // API OutcomeGroup enum keys.
-  Validation: { fg: '#92500A', bg: '#FBEFDD', border: '#F0CE9A' },
-  Workflow: { fg: '#0B5563', bg: '#E4F2F3', border: '#A0D6D9' },
-  Entity: { fg: '#0B5563', bg: '#E4F2F3', border: '#A0D6D9' },
-  Control: { fg: '#9F1239', bg: '#FCE9EE', border: '#F4B8C7' },
-  Derivation: { fg: '#0A6E54', bg: '#E2F4EE', border: '#A9DCCB' },
-  None: { fg: '#41525A', bg: '#EEF2F3', border: '#D2DCDF' },
+  Validation: {
+    fg: tokens.colorStatusWarningForeground1,
+    bg: tokens.colorStatusWarningBackground1,
+    border: tokens.colorStatusWarningBorder1,
+  },
+  Workflow: {
+    fg: tokens.colorBrandForeground1,
+    bg: tokens.colorBrandBackground2,
+    border: tokens.colorBrandStroke2,
+  },
+  Entity: {
+    fg: tokens.colorBrandForeground1,
+    bg: tokens.colorBrandBackground2,
+    border: tokens.colorBrandStroke2,
+  },
+  Control: {
+    fg: tokens.colorStatusDangerForeground1,
+    bg: tokens.colorStatusDangerBackground1,
+    border: tokens.colorStatusDangerBorder1,
+  },
+  Derivation: {
+    fg: tokens.colorStatusSuccessForeground1,
+    bg: tokens.colorStatusSuccessBackground1,
+    border: tokens.colorStatusSuccessBorder1,
+  },
+  None: {
+    fg: tokens.colorNeutralForeground2,
+    bg: tokens.colorNeutralBackground3,
+    border: tokens.colorNeutralStroke2,
+  },
   // Legacy effect-name keys (kept for compatibility).
-  Hold: { fg: '#92500A', bg: '#FBEFDD', border: '#F0CE9A' },
-  Route: { fg: '#0B5563', bg: '#E4F2F3', border: '#A0D6D9' },
-  Flag: { fg: '#9F1239', bg: '#FCE9EE', border: '#F4B8C7' },
-  Derive: { fg: '#0A6E54', bg: '#E2F4EE', border: '#A9DCCB' },
-  Annotate: { fg: '#41525A', bg: '#EEF2F3', border: '#D2DCDF' },
+  Hold: {
+    fg: tokens.colorStatusWarningForeground1,
+    bg: tokens.colorStatusWarningBackground1,
+    border: tokens.colorStatusWarningBorder1,
+  },
+  Route: {
+    fg: tokens.colorBrandForeground1,
+    bg: tokens.colorBrandBackground2,
+    border: tokens.colorBrandStroke2,
+  },
+  Flag: {
+    fg: tokens.colorStatusDangerForeground1,
+    bg: tokens.colorStatusDangerBackground1,
+    border: tokens.colorStatusDangerBorder1,
+  },
+  Derive: {
+    fg: tokens.colorStatusSuccessForeground1,
+    bg: tokens.colorStatusSuccessBackground1,
+    border: tokens.colorStatusSuccessBorder1,
+  },
+  Annotate: {
+    fg: tokens.colorNeutralForeground2,
+    bg: tokens.colorNeutralBackground3,
+    border: tokens.colorNeutralStroke2,
+  },
 };
 
 /** Motion timings honoring an editorial, calm cadence. */

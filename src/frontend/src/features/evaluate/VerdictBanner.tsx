@@ -1,10 +1,10 @@
-import { makeStyles, tokens, Text, shorthands } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens, Text, shorthands } from '@fluentui/react-components';
 import {
   CheckmarkCircleFilled,
   WarningFilled,
   DismissCircleFilled,
 } from '@fluentui/react-icons';
-import { fonts, radius, space, statusLight } from '../../theme/tokens';
+import { fonts, radius, space } from '../../theme/tokens';
 import { groupLabel } from './resultModel';
 import type { VerdictSummary } from './resultModel';
 
@@ -18,7 +18,9 @@ import type { VerdictSummary } from './resultModel';
  *
  * Accessibility: the whole region is `role="status"` + `aria-live="polite"` so assistive tech
  * announces the verdict without stealing focus; the pass/fail state is conveyed by icon + text +
- * color (never color alone, WCAG 1.4.1); contrast pairs are the AA `statusLight` tokens.
+ * color (never color alone, WCAG 1.4.1). Colors use Fluent's SEMANTIC status tokens
+ * (`colorStatusSuccess*` / `colorStatusWarning*`) so the background/foreground pairs adapt to
+ * light & dark automatically and stay AA in BOTH themes — no hardcoded palette.
  */
 
 const useStyles = makeStyles({
@@ -31,25 +33,25 @@ const useStyles = makeStyles({
     ...shorthands.border('1px', 'solid', 'transparent'),
   },
   passes: {
-    backgroundColor: statusLight.successBg,
-    ...shorthands.borderColor(statusLight.successBorder),
+    backgroundColor: tokens.colorStatusSuccessBackground1,
+    ...shorthands.borderColor(tokens.colorStatusSuccessBorder1),
   },
   held: {
-    backgroundColor: statusLight.warningBg,
-    ...shorthands.borderColor(statusLight.warningBorder),
+    backgroundColor: tokens.colorStatusWarningBackground1,
+    ...shorthands.borderColor(tokens.colorStatusWarningBorder1),
   },
   head: { display: 'flex', alignItems: 'center', gap: space.sm },
   icon: { flexShrink: 0, fontSize: '22px', display: 'grid', placeItems: 'center' },
-  iconPass: { color: statusLight.successFg },
-  iconHeld: { color: statusLight.warningFg },
+  iconPass: { color: tokens.colorStatusSuccessForeground1 },
+  iconHeld: { color: tokens.colorStatusWarningForeground1 },
   headline: {
     fontFamily: fonts.display,
     fontSize: '18px',
     fontWeight: 600,
     lineHeight: 1.25,
   },
-  headlinePass: { color: statusLight.successFg },
-  headlineHeld: { color: statusLight.warningFg },
+  headlinePass: { color: tokens.colorStatusSuccessForeground1 },
+  headlineHeld: { color: tokens.colorStatusWarningForeground1 },
   list: {
     listStyle: 'none',
     margin: 0,
@@ -71,7 +73,7 @@ const useStyles = makeStyles({
     fontWeight: 700,
     letterSpacing: '0.06em',
     textTransform: 'uppercase',
-    color: statusLight.warningFg,
+    color: tokens.colorStatusWarningForeground1,
   },
   itemReason: { color: tokens.colorNeutralForeground1, fontSize: '13.5px' },
   itemScope: {
@@ -93,14 +95,17 @@ export function VerdictBanner({ summary }: { summary: VerdictSummary }) {
 
   return (
     <div
-      className={`${styles.banner} ${passes ? styles.passes : styles.held}`}
+      className={mergeClasses(styles.banner, passes ? styles.passes : styles.held)}
       role="status"
       aria-live="polite"
       data-testid="verdict-banner"
       data-verdict={summary.verdict}
     >
       <div className={styles.head}>
-        <span className={`${styles.icon} ${passes ? styles.iconPass : styles.iconHeld}`} aria-hidden>
+        <span
+          className={mergeClasses(styles.icon, passes ? styles.iconPass : styles.iconHeld)}
+          aria-hidden
+        >
           {passes ? (
             <CheckmarkCircleFilled />
           ) : summary.businessCount === 1 ? (
@@ -109,7 +114,9 @@ export function VerdictBanner({ summary }: { summary: VerdictSummary }) {
             <DismissCircleFilled />
           )}
         </span>
-        <Text className={`${styles.headline} ${passes ? styles.headlinePass : styles.headlineHeld}`}>
+        <Text
+          className={mergeClasses(styles.headline, passes ? styles.headlinePass : styles.headlineHeld)}
+        >
           {passes ? 'Passes — order proceeds (no holds or alerts)' : headlineText(summary.businessCount)}
         </Text>
       </div>

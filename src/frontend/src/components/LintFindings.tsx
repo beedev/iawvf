@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { makeStyles, tokens, Text } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens, Text } from '@fluentui/react-components';
 import { CheckmarkCircleFilled, ErrorCircleFilled, WarningFilled } from '@fluentui/react-icons';
 import { fonts, radius, space } from '../theme/tokens';
 import { StatusBadge } from './StatusBadge';
@@ -116,15 +116,15 @@ export function LintFindings({ report }: LintFindingsProps) {
           return (
             <motion.li
               key={`${f.code}-${f.path}-${i}`}
-              className={`${styles.item} ${isError ? styles.itemError : styles.itemWarning}`}
+              className={mergeClasses(styles.item, isError ? styles.itemError : styles.itemWarning)}
               initial={reduced ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reduced ? { duration: 0 } : { duration: 0.28, delay: i * 0.05 }}
             >
               {isError ? (
-                <ErrorCircleFilled className={`${styles.icon} ${styles.iconError}`} aria-hidden />
+                <ErrorCircleFilled className={mergeClasses(styles.icon, styles.iconError)} aria-hidden />
               ) : (
-                <WarningFilled className={`${styles.icon} ${styles.iconWarning}`} aria-hidden />
+                <WarningFilled className={mergeClasses(styles.icon, styles.iconWarning)} aria-hidden />
               )}
               <div className={styles.body}>
                 <div className={styles.topRow}>

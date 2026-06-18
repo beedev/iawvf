@@ -13,6 +13,7 @@ import {
   MessageBarBody,
   MessageBarTitle,
   makeStyles,
+  mergeClasses,
   tokens,
 } from '@fluentui/react-components';
 import { ArchiveRegular, DeleteRegular } from '@fluentui/react-icons';
@@ -118,7 +119,7 @@ export function RegistryActionDialog({
               <Text>
                 {isRetire ? 'Permanently retire' : 'Deprecate'}{' '}
                 <span
-                  className={`${styles.path} ${isRetire ? styles.pathRetire : styles.pathDeprecate}`}
+                  className={mergeClasses(styles.path, isRetire ? styles.pathRetire : styles.pathDeprecate)}
                 >
                   {label}
                 </span>

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { makeStyles, tokens, Spinner, Text, Button } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens, Spinner, Text, Button } from '@fluentui/react-components';
 import { fonts, radius, space } from '../theme/tokens';
 
 /**
@@ -91,7 +91,7 @@ export interface ErrorStateProps {
 export function ErrorState({ title = 'Something went wrong', message, onRetry }: ErrorStateProps) {
   const styles = useStyles();
   return (
-    <div className={`${styles.wrap} ${styles.errorWrap}`} role="alert">
+    <div className={mergeClasses(styles.wrap, styles.errorWrap)} role="alert">
       <Text as="h3" className={styles.title} style={{ color: 'inherit' }}>
         {title}
       </Text>
