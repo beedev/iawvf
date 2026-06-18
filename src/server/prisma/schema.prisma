@@ -20,3 +20,76 @@ model HealthPing {
 
   @@map("health_ping")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N1 — ENTITY SCHEMA REGISTRY
+//
+// The data-driven, bottom-up source of truth for transaction objects (entities)
+// and their typed fields. Replaces the legacy free-text "object = first path
+// segment" approach (which permitted duplicate Kit/kit objects).
+//
+// The canonical subject path consumed by rules/engine is `${entity.key}.${field.name}`.
+// Uniqueness of `Entity.key` is enforced case-insensitively in the service layer
+// AND by a unique index on the always-lower-cased `key` column — so "Kit" and
+// "kit" can never coexist.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Lifecycle status for both entities and fields.
+/// Deprecated artifacts stay resolvable so live rules don't break; Retired is a
+/// hard delete (only permitted when Deprecated and unreferenced).
+enum RegistryStatus {
+  Active
+  Deprecated
+
+  @@map("registry_status")
+}
+
+/// The data types a field may hold (mirrors the .NET SubjectDataType vocabulary).
+enum FieldDataType {
+  String
+  Number
+  Date
+  Boolean
+  Collection
+
+  @@map("field_data_type")
+}
+
+/// A transaction object (e.g. order, specimen, patient). `key` is stored
+/// canonical lower-case and uniquely indexed, guaranteeing case-insensitive
+/// uniqueness at the database level.
+model Entity {
+  id          String         @id @default(uuid()) @db.Uuid
+  key         String         @unique
+  label       String
+  description String?
+  status      RegistryStatus @default(Active)
+  createdBy   String         @map("created_by")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  approvedBy  String?        @map("approved_by")
+  approvedAt  DateTime?      @map("approved_at")
+
+  fields Field[]
+
+  @@map("registry_entity")
+}
+
+/// A typed field on an entity. `name` is the field path RELATIVE to the entity
+/// (e.g. "fixationTime" or "client.nyStatus"); it may contain dots and may end
+/// with "[]" for collection fields. Unique within its owning entity.
+model Field {
+  id            String         @id @default(uuid()) @db.Uuid
+  entityId      String         @map("entity_id") @db.Uuid
+  name          String
+  dataType      FieldDataType  @map("data_type")
+  required      Boolean        @default(false)
+  allowedValues String[]       @default([]) @map("allowed_values")
+  description   String?
+  status        RegistryStatus @default(Active)
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, name])
+  @@map("registry_field")
+}

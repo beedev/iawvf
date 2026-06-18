@@ -9,6 +9,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { ProbeModule } from './probe/probe.module';
+import { RegistryModule } from './registry/registry.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -38,6 +39,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     AuthModule,
     HealthModule,
     ProbeModule,
+    RegistryModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
