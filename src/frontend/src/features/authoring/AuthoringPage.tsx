@@ -236,6 +236,16 @@ export function AuthoringPage() {
   // The backend pairs an evaluation delta with non-empty proposals; null when nothing would help.
   const proposalEvaluation = interpretation?.proposalEvaluation ?? null;
 
+  // Grounding verdict gates Save. A partially-grounded candidate (a phrase still unmapped) is
+  // provisional and must not be saved as-is — the author resolves it by adding the missing term &
+  // re-interpreting, or rephrasing. Falls back gracefully for API builds that omit `grounding`
+  // (savable iff a candidate exists). A power-user who switches to Edit takes manual ownership, so
+  // grounding only blocks Save in read-only View mode.
+  const grounding = interpretation?.grounding;
+  const savable = grounding ? grounding.savable : hasRule;
+  const isProvisional = grounding?.status === 'partial';
+  const blockedByGrounding = !savable && tab === 'view';
+
   // Summary chips of the scope that was actually sent with the last interpret, shown near the result.
   const interpretedChips = (() => {
     if (isUnscoped(interpretedScope)) return [];
@@ -433,6 +443,17 @@ export function AuthoringPage() {
                       </MessageBar>
                     )}
 
+                    {/* Provisional candidate: grounded enough to show, but a phrase is still
+                        unmapped so it cannot be saved as-is. Names exactly what to resolve. */}
+                    {hasRule && isProvisional && grounding?.clarification && (
+                      <MessageBar intent="warning" role="status">
+                        <MessageBarBody>
+                          <MessageBarTitle>Provisional — not yet savable</MessageBarTitle>
+                          {grounding.clarification}
+                        </MessageBarBody>
+                      </MessageBar>
+                    )}
+
                     {hasRule && (
                       <div className={styles.toolbar}>
                         <Tooltip
@@ -475,17 +496,26 @@ export function AuthoringPage() {
                         >
                           Dry-run
                         </Button>
-                        <Button
-                          appearance="primary"
-                          icon={<SaveRegular />}
-                          onClick={() => {
-                            commitEdit();
-                            setSaveOpen(true);
-                          }}
-                          disabled={editorInvalid || !canAuthor}
+                        <Tooltip
+                          content={
+                            blockedByGrounding
+                              ? 'This rule is provisional — resolve the unmapped phrase (add the term & re-interpret, or rephrase) before saving.'
+                              : 'Review governance details and save the rule'
+                          }
+                          relationship="description"
                         >
-                          Save…
-                        </Button>
+                          <Button
+                            appearance="primary"
+                            icon={<SaveRegular />}
+                            onClick={() => {
+                              commitEdit();
+                              setSaveOpen(true);
+                            }}
+                            disabled={editorInvalid || !canAuthor || blockedByGrounding}
+                          >
+                            Save…
+                          </Button>
+                        </Tooltip>
                       </div>
                     )}
 

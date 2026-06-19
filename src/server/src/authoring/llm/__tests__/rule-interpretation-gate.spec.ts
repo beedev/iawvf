@@ -105,7 +105,7 @@ const CLEAN_PM17_JSON = JSON.stringify({
 });
 
 describe('RuleInterpretationGate (offline)', () => {
-  it('accepts a clean PM17-like envelope -> valid candidate', () => {
+  it('accepts a clean PM17-like envelope -> valid candidate (grounded + savable)', () => {
     const envelope: ModelEnvelope = {
       candidateJson: CLEAN_PM17_JSON,
       confidence: 0.9,
@@ -118,9 +118,35 @@ describe('RuleInterpretationGate (offline)', () => {
     expect(result.candidate!.key).toBe('PM17');
     expect(result.confidence).toBe(0.9);
     expect(result.gaps).toHaveLength(0);
+    // Fully grounded -> savable.
+    expect(result.grounding.status).toBe('grounded');
+    expect(result.grounding.savable).toBe(true);
+    expect(result.grounding.clarification).toBeUndefined();
     // Provenance is captured.
     expect(result.interpreterVersion).toBe('test/1.0.0');
     expect(result.model).toBe('test-model');
+  });
+
+  it('marks a schema-valid, lint-clean candidate with residual unmapped phrases as PARTIAL (provisional, NOT savable, confidence capped)', () => {
+    // The condition/assert all ground, but the model left a phrase unmapped (e.g. an
+    // ungrounded action). The candidate must NOT present as high-confidence-savable.
+    const envelope: ModelEnvelope = {
+      candidateJson: CLEAN_PM17_JSON,
+      confidence: 0.85,
+      unmappedPhrases: ['to the New York performing lab'],
+      gaps: [],
+    };
+    const result = makeGate().validate(envelope, PROVENANCE);
+
+    expect(result.candidate).not.toBeNull();
+    expect(result.grounding.status).toBe('partial');
+    expect(result.grounding.savable).toBe(false);
+    expect(result.grounding.clarification).toMatch(/provisional/i);
+    expect(result.grounding.clarification).toContain(
+      'to the New York performing lab',
+    );
+    // 0.85 must be capped to the partial ceiling (0.4), not shown as high confidence.
+    expect(result.confidence).toBeLessThanOrEqual(0.4);
   });
 
   it('rejects an UNKNOWN subject ("specimen.colour") -> candidate null + propose-new-term gap', () => {
@@ -146,6 +172,8 @@ describe('RuleInterpretationGate (offline)', () => {
 
     expect(result.candidate).toBeNull();
     expect(result.confidence).toBe(0);
+    expect(result.grounding.status).toBe('ungrounded');
+    expect(result.grounding.savable).toBe(false);
     expect(result.gaps.some((g) => /specimen\.colour/.test(g))).toBe(true);
     expect(result.gaps.some((g) => /vocabulary-change request/.test(g))).toBe(
       true,

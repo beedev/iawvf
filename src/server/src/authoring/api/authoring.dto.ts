@@ -10,6 +10,7 @@ import {
 import { DryRunResult } from '../dry-run-previewer';
 import { LintReport } from '../vocabulary-linter';
 import {
+  GroundingSummary,
   InterpretationResult,
   ProposalEvaluation,
   TermProposal,
@@ -149,6 +150,35 @@ export class ProposalEvaluationDto {
   }
 }
 
+/** The grounding verdict projected for the API response (mirrors `GroundingSummary`). */
+export class GroundingDto {
+  @ApiProperty({
+    enum: ['grounded', 'partial', 'ungrounded'],
+    description:
+      'How completely the sentence grounded: grounded (savable), partial (provisional — ' +
+      'some phrase still unmapped), or ungrounded (no candidate).',
+  })
+  status!: GroundingSummary['status'];
+  @ApiProperty({
+    description: 'True only for a fully grounded candidate. The Save action is gated on this.',
+  })
+  savable!: boolean;
+  @ApiPropertyOptional({
+    description: 'When not savable, a one-line reason naming what is unresolved.',
+  })
+  clarification?: string;
+
+  static from(grounding: GroundingSummary): GroundingDto {
+    return {
+      status: grounding.status,
+      savable: grounding.savable,
+      ...(grounding.clarification !== undefined
+        ? { clarification: grounding.clarification }
+        : {}),
+    };
+  }
+}
+
 /** The interpreter result projected for the API response (mirrors `InterpretResponse`). */
 export class InterpretResponseDto {
   @ApiPropertyOptional({
@@ -158,6 +188,13 @@ export class InterpretResponseDto {
   })
   candidate!: Record<string, unknown> | null;
   @ApiProperty() confidence!: number;
+  @ApiProperty({
+    type: GroundingDto,
+    description:
+      'Deterministic grounding verdict. `grounding.savable` gates the Save action; a ' +
+      'partially-grounded candidate is provisional and cannot be saved as-is.',
+  })
+  grounding!: GroundingDto;
   @ApiProperty({ type: [String] }) unmappedPhrases!: string[];
   @ApiProperty({ type: [String] }) gaps!: string[];
   @ApiProperty({
@@ -188,6 +225,7 @@ export class InterpretResponseDto {
           ? null
           : (result.candidate as unknown as Record<string, unknown>),
       confidence: result.confidence,
+      grounding: GroundingDto.from(result.grounding),
       unmappedPhrases: result.unmappedPhrases,
       gaps: result.gaps,
       termProposals: result.termProposals,

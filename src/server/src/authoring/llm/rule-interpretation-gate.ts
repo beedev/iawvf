@@ -26,7 +26,12 @@
 import { SchemaValidator } from '../schema-validator';
 import { VocabularyLinter } from '../vocabulary-linter';
 
-import { InterpretationResult, TermProposal } from './interpreter';
+import {
+  InterpretationResult,
+  PARTIAL_GROUNDING_CONFIDENCE_CAP,
+  summarizeGrounding,
+  TermProposal,
+} from './interpreter';
 import { ModelEnvelope, ModelTermProposal } from './model-envelope';
 
 import { deserializeRule } from '../../vdf/serializer';
@@ -320,9 +325,20 @@ export class RuleInterpretationGate {
     termProposals: TermProposal[],
     provenance: GateProvenance,
   ): InterpretationResult {
+    const grounding = summarizeGrounding(candidate, unmapped);
+    // Confidence must track grounding: no candidate ⇒ 0 (a model-declined result must not
+    // read as e.g. "20% confident"); a partially-grounded candidate is provisional and is
+    // capped so it never presents at high confidence before the unmapped phrase is resolved.
+    const effectiveConfidence =
+      grounding.status === 'ungrounded'
+        ? 0
+        : grounding.status === 'partial'
+          ? Math.min(confidence, PARTIAL_GROUNDING_CONFIDENCE_CAP)
+          : confidence;
     return {
       candidate,
-      confidence,
+      confidence: effectiveConfidence,
+      grounding,
       unmappedPhrases: unmapped,
       gaps,
       termProposals,

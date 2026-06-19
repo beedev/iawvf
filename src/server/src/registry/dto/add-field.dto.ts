@@ -56,4 +56,14 @@ export class AddFieldDto {
   @IsString()
   @MaxLength(512)
   description?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Override the near-duplicate guard. When omitted, a field whose name is a token-subset ' +
+      'of an existing field (a likely synonym) is rejected. Set true to add it anyway.',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  allowOverlap?: boolean;
 }

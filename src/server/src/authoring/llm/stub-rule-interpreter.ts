@@ -14,6 +14,7 @@ import {
   GroundingVocabulary,
   IRuleInterpreter,
   InterpretationResult,
+  summarizeGrounding,
   TermProposal,
 } from './interpreter';
 
@@ -107,6 +108,7 @@ function proposeUnknownTerm(
   return {
     candidate: null,
     confidence: 0,
+    grounding: summarizeGrounding(null, trimmed === '' ? [] : [trimmed]),
     unmappedPhrases: trimmed === '' ? [] : [trimmed],
     gaps: [
       `The phrase references '${proposal.path}', which is not in the controlled vocabulary. ` +
@@ -165,6 +167,7 @@ function success(
   return {
     candidate: rule,
     confidence,
+    grounding: summarizeGrounding(rule, []),
     unmappedPhrases: [],
     gaps: [],
     termProposals: [],
@@ -179,6 +182,7 @@ function unrecognized(naturalLanguage: string): InterpretationResult {
   return {
     candidate: null,
     confidence: 0,
+    grounding: summarizeGrounding(null, trimmed === '' ? [] : [trimmed]),
     unmappedPhrases: trimmed === '' ? [] : [trimmed],
     gaps: [
       'The offline stub interpreter does not recognise this rule. It maps only a small set of known phrasings ' +

@@ -90,6 +90,67 @@ export interface ProposalEvaluation {
   improves: boolean;
 }
 
+/**
+ * How completely the sentence grounded in the registry vocabulary — the signal the UI
+ * uses to decide whether the candidate may be SAVED:
+ *  - `grounded`   — a candidate was produced and every phrase mapped to a term → savable;
+ *  - `partial`    — a candidate exists but some phrase(s) are still unmapped, so the rule
+ *                   does not yet fully represent the author's intent → provisional, NOT savable;
+ *  - `ungrounded` — no candidate (the gate suppressed it) → not savable.
+ */
+export type GroundingStatus = 'grounded' | 'partial' | 'ungrounded';
+
+/**
+ * The deterministic grounding verdict attached to every {@link InterpretationResult}.
+ * `savable` is true ONLY for a fully grounded candidate. When false, `clarification`
+ * is a single human-readable line naming exactly what is unresolved (the unmapped
+ * phrases, or why no candidate was produced) so the author knows what to fix.
+ */
+export interface GroundingSummary {
+  status: GroundingStatus;
+  /** True only when `status === 'grounded'`. The Save action is gated on this. */
+  savable: boolean;
+  /** When not savable, a one-line reason naming what is unresolved. */
+  clarification?: string;
+}
+
+/** Upper bound on confidence for a partially-grounded (provisional) candidate. */
+export const PARTIAL_GROUNDING_CONFIDENCE_CAP = 0.4;
+
+/**
+ * Derives the deterministic {@link GroundingSummary} from a candidate and the residual
+ * unmapped phrases. The single place that decides whether a rule may be SAVED, shared by
+ * the live gate and the offline stub so both agree:
+ *  - no candidate           → `ungrounded` (suppressed) — not savable;
+ *  - candidate + unmapped    → `partial`  (provisional)  — not savable;
+ *  - candidate + none left   → `grounded`                — savable.
+ */
+export function summarizeGrounding(
+  candidate: RuleDefinition | null,
+  unmappedPhrases: string[],
+): GroundingSummary {
+  if (candidate === null) {
+    return {
+      status: 'ungrounded',
+      savable: false,
+      clarification:
+        'The sentence could not be grounded in the controlled vocabulary, so no rule was produced. Add the missing term(s) below or rephrase, then re-interpret.',
+    };
+  }
+  if (unmappedPhrases.length > 0) {
+    const quoted = unmappedPhrases.map((p) => `"${p}"`).join(', ');
+    const one = unmappedPhrases.length === 1;
+    return {
+      status: 'partial',
+      savable: false,
+      clarification:
+        `This rule is provisional — the ${one ? 'phrase' : 'phrases'} ${quoted} ${one ? "isn't" : "aren't"} grounded in the vocabulary, ` +
+        'so the candidate may not fully capture your intent. Add the missing term(s) below or rephrase, then re-interpret before saving.',
+    };
+  }
+  return { status: 'grounded', savable: true };
+}
+
 /** The outcome of interpreting one natural-language rule. Mirrors `InterpretationResult`. */
 export interface InterpretationResult {
   /**
@@ -97,8 +158,14 @@ export interface InterpretationResult {
    * suppresses any candidate that fails schema validation or references unknown terms).
    */
   candidate: RuleDefinition | null;
-  /** Confidence in the candidate, 0..1 (0 when suppressed). */
+  /** Confidence in the candidate, 0..1 (0 when suppressed, capped when partial). */
   confidence: number;
+  /**
+   * Whether the sentence grounded fully, partially, or not at all — and whether the
+   * candidate may be saved. Surfaced so a partially-grounded rule cannot masquerade as
+   * a high-confidence, savable one (see {@link GroundingSummary}).
+   */
+  grounding: GroundingSummary;
   /** Phrases from the input that could not be mapped to a vocabulary term. */
   unmappedPhrases: string[];
   /** Missing concepts / clarifications (propose-new-term gaps). */

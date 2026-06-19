@@ -128,11 +128,32 @@ export interface ProposalEvaluation {
   improves: boolean;
 }
 
+/**
+ * How completely the sentence grounded — the signal that gates the Save action. `grounded`
+ * is savable; `partial` (a candidate exists but a phrase is still unmapped) and `ungrounded`
+ * (no candidate) are provisional and must not be saved as-is.
+ *
+ * Source of truth: src/server authoring interpret response (`grounding`).
+ */
+export interface GroundingSummary {
+  status: 'grounded' | 'partial' | 'ungrounded';
+  /** True only for a fully grounded candidate. Save is gated on this. */
+  savable: boolean;
+  /** When not savable, a one-line reason naming what is unresolved. */
+  clarification?: string;
+}
+
 export interface InterpretResponse {
   /** The compiled candidate rule, or null if the model produced none. */
   candidate: RuleJson | null;
   /** Interpreter confidence in 0..1. */
   confidence: number;
+  /**
+   * The grounding verdict. `grounding.savable` gates Save; `grounding.clarification` explains
+   * what is unresolved when it is not. Optional/absent for compatibility with API builds that
+   * predate the feature — callers should treat an absent value as "grounded when a candidate exists".
+   */
+  grounding?: GroundingSummary;
   /** Phrases the interpreter could not map to the controlled vocabulary. */
   unmappedPhrases: string[];
   /** Identified gaps requiring author clarification. */

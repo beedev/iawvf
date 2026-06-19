@@ -111,6 +111,7 @@ export class RegistryController {
         required: dto.required,
         allowedValues: dto.allowedValues,
         description: dto.description,
+        allowOverlap: dto.allowOverlap,
       },
       user.username,
     );

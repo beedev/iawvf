@@ -39,6 +39,12 @@ export interface AddFieldInput {
   required?: boolean;
   allowedValues?: string[];
   description?: string;
+  /**
+   * Override the near-duplicate guard. When false/omitted, adding a field whose name is a
+   * token-subset of (or near-identical to) an existing field is REJECTED to stop synonym
+   * accumulation (e.g. `performingLabRouting` beside `performingLab`). Set true to add anyway.
+   */
+  allowOverlap?: boolean;
 }
 
 /**
@@ -154,6 +160,21 @@ export class RegistryService {
       throw new BadRequestException(
         `dataType must be one of: ${FIELD_DATA_TYPES.join(', ')}.`,
       );
+    }
+
+    // Near-duplicate guard: a new field that is a token-subset of (or near-identical to) an
+    // existing ACTIVE field is almost always a synonym (e.g. `performingLabRouting` beside
+    // `performingLab`). Reject it so the registry doesn't re-accumulate the duplicates that
+    // make later interpretations ground onto junk. Authors who really mean it pass allowOverlap.
+    if (input.allowOverlap !== true) {
+      const collisions = findNearDuplicateFields(name, entity.fields);
+      if (collisions.length > 0) {
+        const list = collisions.map((c) => `'${entity.key}.${c}'`).join(', ');
+        throw new ConflictException(
+          `Field '${name}' looks like a duplicate of existing field(s) ${list} on '${entity.key}'. ` +
+            'Reuse the existing field, or resubmit with allowOverlap=true to add it anyway.',
+        );
+      }
     }
 
     const allowedValues = this.normalizeAllowedValues(input.allowedValues);
@@ -327,4 +348,75 @@ export class RegistryService {
       error.code === 'P2002'
     );
   }
+}
+
+/**
+ * Splits a single path SEGMENT into lower-case word tokens, breaking on camelCase
+ * boundaries and separators. `performingLabRouting` → ['performing','lab','routing'].
+ */
+function tokenizeSegment(segment: string): string[] {
+  return segment
+    .replace(/\[\]$/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .map((t) => t.toLowerCase())
+    .filter((t) => t.length > 0);
+}
+
+/** Splits a dotted field name into its parent prefix and final segment. */
+function splitFieldPath(name: string): { parent: string; leaf: string } {
+  const clean = name.replace(/\[\]$/, '');
+  const dot = clean.lastIndexOf('.');
+  return dot < 0
+    ? { parent: '', leaf: clean }
+    : { parent: clean.slice(0, dot), leaf: clean.slice(dot + 1) };
+}
+
+/**
+ * Finds existing ACTIVE fields that a proposed `name` is a near-duplicate of — the signal
+ * the add-field guard uses to stop SYNONYM accumulation (e.g. `performingLabRouting` beside
+ * `performingLab`).
+ *
+ * Comparison is PREFIX-AWARE so legitimate nesting is never flagged: only fields sharing the
+ * SAME dotted parent are compared, on their final segment's tokens. A collision is then either
+ *  - a token-SUBSET on the leaf (`performingLab` ⊂ `performingLabRouting`), or
+ *  - high leaf-token overlap (Jaccard ≥ 0.6).
+ * This leaves parent/child pairs (`specimen` vs `specimen.type`) and same-parent siblings with
+ * distinct meaning (`client.nyStatus` vs `client.program`) addable. Exact-name matches are left
+ * to the unique constraint (a clearer, separate error).
+ */
+export function findNearDuplicateFields(
+  name: string,
+  existing: readonly Field[],
+): string[] {
+  const a = splitFieldPath(name);
+  const aTokens = tokenizeSegment(a.leaf);
+  if (aTokens.length === 0) {
+    return [];
+  }
+  const aSet = new Set(aTokens);
+  const hits: string[] = [];
+  for (const field of existing) {
+    if (field.status !== RegistryStatus.Active || field.name === name) {
+      continue; // inactive, or exact dup (handled by the unique constraint)
+    }
+    const b = splitFieldPath(field.name);
+    if (b.parent !== a.parent) {
+      continue; // different nesting context — not a synonym
+    }
+    const bSet = new Set(tokenizeSegment(b.leaf));
+    if (bSet.size === 0) {
+      continue;
+    }
+    const shared = [...aSet].filter((t) => bSet.has(t)).length;
+    if (shared === 0) {
+      continue;
+    }
+    const subset = shared === aSet.size || shared === bSet.size;
+    const jaccard = shared / (aSet.size + bSet.size - shared);
+    if (subset || jaccard >= 0.6) {
+      hits.push(field.name);
+    }
+  }
+  return hits;
 }

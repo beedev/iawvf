@@ -22,6 +22,7 @@ import {
   GroundingVocabulary,
   InterpretationResult,
   IRuleInterpreter,
+  summarizeGrounding,
   TermProposal,
 } from '../interpreter';
 import { LlmGroundingService } from '../llm-grounding.service';
@@ -74,7 +75,7 @@ function fakeRule(key: string): RuleDefinition {
 }
 
 function result(over: Partial<InterpretationResult>): InterpretationResult {
-  return {
+  const merged = {
     candidate: null,
     confidence: 0,
     unmappedPhrases: [],
@@ -84,6 +85,12 @@ function result(over: Partial<InterpretationResult>): InterpretationResult {
     interpreterVersion: 'fake/1.0.0',
     model: 'fake',
     ...over,
+  };
+  return {
+    ...merged,
+    grounding:
+      over.grounding ??
+      summarizeGrounding(merged.candidate, merged.unmappedPhrases),
   };
 }
 
