@@ -94,6 +94,30 @@ export class VocabularyLinter {
     this.knownPaths = new Set(this.byPath.keys());
   }
 
+  /**
+   * Whether a subject path resolves to a known registry subject (array fan-out
+   * aware). Exposes the same resolution the linter uses for LINT001 so callers (the
+   * gate's term-proposal synthesis) classify leaves identically.
+   */
+  isKnownSubject(subject: string): boolean {
+    return this.resolveSubject(subject) !== undefined;
+  }
+
+  /**
+   * Whether {@link entity} (the first dot-segment of a subject path) is already a
+   * known registry entity. Lets the proposal tell the UI whether to add a field to an
+   * existing entity or create a brand-new one.
+   */
+  isKnownEntity(entity: string): boolean {
+    const prefix = `${entity.toLowerCase()}.`;
+    for (const path of this.knownPaths) {
+      if (path.startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Lints an already-deserialized rule. */
   lint(rule: RuleDefinition): LintReport {
     const findings: LintFinding[] = [];

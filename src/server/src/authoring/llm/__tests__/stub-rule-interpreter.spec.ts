@@ -74,6 +74,31 @@ describe('StubRuleInterpreter (offline)', () => {
     expect(result.candidate?.key).toBe('BL8');
   });
 
+  it('proposes a structured term for an obviously-unknown concept (specimen colour)', async () => {
+    const result = await stub.interpret(
+      'Hold the order when the specimen colour is abnormal.',
+      EMPTY_GROUNDING,
+    );
+    expect(result.candidate).toBeNull();
+    expect(result.termProposals).toHaveLength(1);
+    expect(result.termProposals[0]).toMatchObject({
+      entity: 'specimen',
+      field: 'colour',
+      path: 'specimen.colour',
+      dataType: 'String',
+      entityExists: true,
+    });
+    expect(result.gaps.length).toBeGreaterThan(0);
+  });
+
+  it('emits no term proposals for a recognised sentence', async () => {
+    const result = await stub.interpret(
+      'Assign pediatric priority for patients under 19.',
+      EMPTY_GROUNDING,
+    );
+    expect(result.termProposals).toHaveLength(0);
+  });
+
   it('returns null + a gap for gibberish (no silent invention)', async () => {
     const result = await stub.interpret(
       'asdf qwerty zxcv plover xyzzy',

@@ -33,6 +33,34 @@ export interface GroundingVocabulary {
   references: readonly string[];
 }
 
+/**
+ * A STRUCTURED "missing vocabulary term" proposal: a concrete `entity.field` the
+ * Authoring UI can offer to add to the registry inline (then re-interpret) so a
+ * phrase that could not be grounded becomes groundable.
+ *
+ * Primarily SYNTHESIZED by the deterministic {@link RuleInterpretationGate} from a
+ * candidate leaf whose subject is unknown to the registry (LINT001), so it is exact
+ * and reproducible regardless of what the model claimed.
+ */
+export interface TermProposal {
+  /** The natural-language phrase that motivated the term, when known. */
+  phrase?: string;
+  /** The proposed entity (first '.'-segment of {@link path}). */
+  entity: string;
+  /** The proposed field (the remainder of {@link path} after the entity segment). */
+  field: string;
+  /** The full canonical `entity.field` subject path (trailing `[]` stripped). */
+  path: string;
+  /** The inferred registry field data type (mirrors Prisma `FieldDataType`). */
+  dataType: 'String' | 'Number' | 'Date' | 'Boolean' | 'Collection';
+  /** A closed value set inferred from an InSet/Equals literal array, when present. */
+  allowedValues?: string[];
+  /** Whether {@link entity} is ALREADY a known registry entity (add a field vs. a new entity). */
+  entityExists: boolean;
+  /** Why this term is being proposed (the rule usage that motivated it). */
+  rationale: string;
+}
+
 /** The outcome of interpreting one natural-language rule. Mirrors `InterpretationResult`. */
 export interface InterpretationResult {
   /**
@@ -46,6 +74,12 @@ export interface InterpretationResult {
   unmappedPhrases: string[];
   /** Missing concepts / clarifications (propose-new-term gaps). */
   gaps: string[];
+  /**
+   * Structured "missing vocabulary term" proposals (default `[]`). When the gate
+   * suppressed the candidate because a leaf referenced an unknown subject (LINT001),
+   * these tell the UI exactly which `entity.field`(s) to add to make the rule ground.
+   */
+  termProposals: TermProposal[];
   /** Provenance: the original natural-language text. */
   naturalLanguage: string;
   /** Provenance: the interpreter version that produced this result. */

@@ -29,14 +29,19 @@ export function buildSystemPrompt(vocabulary: GroundingVocabulary): string {
     '1. GROUNDING, NOT GUESSING. Use ONLY the subjects, operators, reference keys, and outcome types listed below.',
   );
   lines.push(
-    '2. NO SILENT INVENTION. If the sentence needs a concept the vocabulary does not contain (a subject, operator, reference, or outcome that is NOT in the lists), you MUST NOT fabricate it. Instead, set "candidateJson" to null, lower the confidence, and add a precise entry to "gaps" naming the missing concept (e.g. "No subject models \'cold-ischemia time\'.").',
+    '2. NO SILENT INVENTION. If the sentence needs a concept the vocabulary does not contain (a subject, operator, reference, or outcome that is NOT in the lists), you MUST NOT fabricate a rule that uses it. Instead, set "candidateJson" to null, lower the confidence, add a precise entry to "gaps" naming the missing concept (e.g. "No subject models \'cold-ischemia time\'."), AND emit a structured entry in "termProposals" describing the missing subject (see TERM PROPOSALS below).',
   );
   lines.push(
     '3. Any phrase you could not map to a vocabulary term goes in "unmappedPhrases".',
   );
   lines.push(
-    '4. Prefer asking (a gap) over assuming. When in doubt, do not produce a candidate.',
+    '4. Prefer asking (a gap + a term proposal) over assuming. When in doubt, do not produce a candidate.',
   );
+  lines.push('');
+  lines.push('KNOWN ENTITIES (the objects subjects belong to):');
+  for (const entity of distinctEntities(vocabulary)) {
+    lines.push(`  - ${entity}`);
+  }
   lines.push('');
   lines.push(
     'LEGAL SUBJECTS (fact paths and their data types) — use these exact paths:',
@@ -109,6 +114,29 @@ export function buildSystemPrompt(vocabulary: GroundingVocabulary): string {
   );
   lines.push('');
   lines.push(
+    'TERM PROPOSALS. If the rule needs a concept that is NOT in the controlled vocabulary, do NOT invent a rule using it. Instead emit a "termProposals" entry describing the missing SUBJECT:',
+  );
+  lines.push(
+    '  - "entity": pick the existing entity it most likely belongs to (from KNOWN ENTITIES above) — or propose a sensible new entity name if none fits.',
+  );
+  lines.push(
+    '  - "field": a camelCase field name for the missing concept (e.g. "programScope", "scopeStatus").',
+  );
+  lines.push(
+    '  - "dataType": one of String | Number | Date | Boolean | Collection (null defaults to String).',
+  );
+  lines.push(
+    '  - "allowedValues": the enumerated string values when the concept is a closed value set; otherwise null.',
+  );
+  lines.push('  - "rationale": one sentence on why the term is needed.');
+  lines.push(
+    '  - "phrase": the natural-language phrase that motivated the term, or null.',
+  );
+  lines.push(
+    'Always ALSO add the human-readable "gaps" text. When you emit a term proposal, "candidateJson" is normally null.',
+  );
+  lines.push('');
+  lines.push(
     'OUTPUT. Respond with a single JSON object exactly matching this envelope (no prose, no markdown):',
   );
   lines.push('  {');
@@ -117,12 +145,28 @@ export function buildSystemPrompt(vocabulary: GroundingVocabulary): string {
   );
   lines.push('    "confidence": <number 0..1>,');
   lines.push('    "unmappedPhrases": [<strings>],');
-  lines.push('    "gaps": [<strings>]');
+  lines.push('    "gaps": [<strings>],');
+  lines.push(
+    '    "termProposals": [{ "entity": <string>, "field": <string>, "dataType": <String|Number|Date|Boolean|Collection|null>, "allowedValues": [<strings>]|null, "rationale": <string>, "phrase": <string|null> }]',
+  );
   lines.push('  }');
   lines.push(
     'The rule object inside "candidateJson" MUST include at least "key", "name", and "onFailure". Choose a short uppercase "key" if none is implied (e.g. "NL1").',
   );
   return lines.join('\n');
+}
+
+/**
+ * The distinct entity names (first dot-segment of each subject path), sorted, so the
+ * model can pick a sensible existing entity for a missing-term proposal.
+ */
+function distinctEntities(vocabulary: GroundingVocabulary): string[] {
+  const entities = new Set<string>();
+  for (const subject of vocabulary.subjects) {
+    const dot = subject.path.indexOf('.');
+    entities.add(dot < 0 ? subject.path : subject.path.slice(0, dot));
+  }
+  return [...entities].sort((a, b) => a.localeCompare(b));
 }
 
 /** Builds the user prompt carrying the author's natural-language rule. */

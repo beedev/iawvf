@@ -14,6 +14,7 @@ import {
   GroundingVocabulary,
   IRuleInterpreter,
   InterpretationResult,
+  TermProposal,
 } from './interpreter';
 
 import { RuleDefinition } from '../../vdf/types';
@@ -33,13 +34,89 @@ export class StubRuleInterpreter implements IRuleInterpreter {
     // the parameter is part of the IRuleInterpreter contract.
     void grounding;
     const text = (naturalLanguage ?? '').toLowerCase();
+
     const matched = match(text);
-    const result =
-      matched !== null
-        ? success(matched.rule, matched.confidence, naturalLanguage)
-        : unrecognized(naturalLanguage);
-    return Promise.resolve(result);
+    if (matched !== null) {
+      return Promise.resolve(
+        success(matched.rule, matched.confidence, naturalLanguage),
+      );
+    }
+
+    // An obviously-unknown concept the stub cannot map but CAN name a term for, so
+    // offline tests deterministically exercise the missing-vocabulary proposal path.
+    const proposed = proposeUnknownTerm(text, naturalLanguage);
+    if (proposed !== null) {
+      return Promise.resolve(proposed);
+    }
+
+    return Promise.resolve(unrecognized(naturalLanguage));
   }
+}
+
+/** A known unknown-concept phrasing → the structured term the UI should offer to add. */
+interface UnknownConcept {
+  match: string[];
+  proposal: Omit<TermProposal, 'phrase'>;
+}
+
+const UNKNOWN_CONCEPTS: UnknownConcept[] = [
+  {
+    match: ['colour', 'color'],
+    proposal: {
+      entity: 'specimen',
+      field: 'colour',
+      path: 'specimen.colour',
+      dataType: 'String',
+      entityExists: true,
+      rationale:
+        'The rule refers to specimen colour, which is not yet a registry field on specimen.',
+    },
+  },
+  {
+    match: ['fixation'],
+    proposal: {
+      entity: 'specimen',
+      field: 'fixative',
+      path: 'specimen.fixative',
+      dataType: 'String',
+      entityExists: true,
+      rationale:
+        'The rule refers to a fixation concept that is not yet a registry field on specimen.',
+    },
+  },
+];
+
+/**
+ * Returns an {@link InterpretationResult} carrying a structured {@link TermProposal}
+ * (candidate suppressed) when the input references a known unknown concept; otherwise
+ * `null`. Lets the offline suite assert the missing-vocabulary path deterministically.
+ */
+function proposeUnknownTerm(
+  text: string,
+  naturalLanguage: string,
+): InterpretationResult | null {
+  const concept = UNKNOWN_CONCEPTS.find((c) => contains(text, ...c.match));
+  if (concept === undefined) {
+    return null;
+  }
+  const trimmed = (naturalLanguage ?? '').trim();
+  const proposal: TermProposal = {
+    ...concept.proposal,
+    phrase: trimmed === '' ? undefined : trimmed,
+  };
+  return {
+    candidate: null,
+    confidence: 0,
+    unmappedPhrases: trimmed === '' ? [] : [trimmed],
+    gaps: [
+      `The phrase references '${proposal.path}', which is not in the controlled vocabulary. ` +
+        'Add the proposed term to the registry, then re-interpret.',
+    ],
+    termProposals: [proposal],
+    naturalLanguage,
+    interpreterVersion: STUB_INTERPRETER_VERSION,
+    model: OFFLINE_MODEL,
+  };
 }
 
 interface Match {
@@ -90,6 +167,7 @@ function success(
     confidence,
     unmappedPhrases: [],
     gaps: [],
+    termProposals: [],
     naturalLanguage,
     interpreterVersion: STUB_INTERPRETER_VERSION,
     model: OFFLINE_MODEL,
@@ -107,6 +185,7 @@ function unrecognized(naturalLanguage: string): InterpretationResult {
         '(circled H&E + FISH, follow-up + initial order, pediatric/under-19, NY + validated). ' +
         'Use the live OpenAI interpreter for arbitrary natural language.',
     ],
+    termProposals: [],
     naturalLanguage,
     interpreterVersion: STUB_INTERPRETER_VERSION,
     model: OFFLINE_MODEL,

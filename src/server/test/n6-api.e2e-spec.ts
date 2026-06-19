@@ -240,6 +240,56 @@ describe('N6 API surface (e2e)', () => {
       expect(body.confidence).toBeGreaterThan(0);
     });
 
+    it('POST /api/authoring/interpret (stub) surfaces a structured term proposal for an unknown concept', async () => {
+      const token = await login('author', 'author-pw');
+      const res = await request(app.getHttpServer())
+        .post('/api/authoring/interpret')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          naturalLanguage:
+            'Hold the order when the specimen colour is abnormal.',
+        })
+        .expect(200);
+
+      const body = res.body as {
+        candidate: Record<string, unknown> | null;
+        termProposals: {
+          entity: string;
+          field: string;
+          path: string;
+          dataType: string;
+          entityExists: boolean;
+        }[];
+      };
+      expect(body.termProposals.length).toBeGreaterThan(0);
+      const proposal = body.termProposals[0];
+      expect(proposal.entity).toBe('specimen');
+      expect(proposal.field).toBe('colour');
+      expect(proposal.path).toBe('specimen.colour');
+      expect(proposal.dataType).toBe('String');
+      expect(typeof proposal.entityExists).toBe('boolean');
+    });
+
+    it('POST /api/authoring/interpret (stub) returns no term proposals for a grounded sentence', async () => {
+      const token = await login('author', 'author-pw');
+      const res = await request(app.getHttpServer())
+        .post('/api/authoring/interpret')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          naturalLanguage:
+            'Require a circled H&E slide when a Technical FISH test is ordered.',
+          objects: ['specimen'],
+        })
+        .expect(200);
+
+      const body = res.body as {
+        candidate: Record<string, unknown> | null;
+        termProposals: unknown[];
+      };
+      expect(body.candidate).not.toBeNull();
+      expect(body.termProposals).toEqual([]);
+    });
+
     it('POST /api/authoring/interpret rejects an unknown scope object (400)', async () => {
       const token = await login('author', 'author-pw');
       await request(app.getHttpServer())

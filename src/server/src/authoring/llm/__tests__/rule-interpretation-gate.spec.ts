@@ -49,6 +49,14 @@ const SUBJECTS: GroundingSubject[] = [
     allowedValues: [],
   },
   { path: 'patient.gender', dataType: FieldDataType.String, allowedValues: [] },
+  // `order` is a known entity (so order.client.program is "add a field to order"),
+  // and specimen.fixationTime is a fully grounded numeric subject.
+  { path: 'order.type', dataType: FieldDataType.String, allowedValues: [] },
+  {
+    path: 'specimen.fixationTime',
+    dataType: FieldDataType.Number,
+    allowedValues: [],
+  },
 ];
 
 const PROVENANCE: GateProvenance = {
@@ -203,5 +211,142 @@ describe('RuleInterpretationGate (offline)', () => {
     expect(result.candidate).toBeNull();
     expect(result.gaps.length).toBeGreaterThan(0);
     expect(result.unmappedPhrases).toContain('cold-ischemia time');
+    // No candidate deserialized -> no synthesized proposals.
+    expect(result.termProposals).toHaveLength(0);
+  });
+
+  // ── Structured term-proposal synthesis (LINT001 → TermProposal) ─────────────
+
+  it('synthesizes a TermProposal for an unknown subject on an EXISTING entity (order.client.program Equals "SCOPE")', () => {
+    const ruleJson = JSON.stringify({
+      key: 'NLP1',
+      name: 'Scope program orders',
+      onSuccess: { type: 'Continue' },
+      onFailure: { type: 'CompleteHold', scope: 'order', reason: 'x' },
+      assert: {
+        type: 'leaf',
+        subject: 'order.client.program',
+        operator: 'Equals',
+        value: 'SCOPE',
+      },
+    });
+    const result = makeGate().validate(
+      {
+        candidateJson: ruleJson,
+        confidence: 0.8,
+        unmappedPhrases: [],
+        gaps: [],
+      },
+      PROVENANCE,
+    );
+
+    // Candidate suppressed by LINT001.
+    expect(result.candidate).toBeNull();
+    expect(result.confidence).toBe(0);
+    expect(result.gaps.some((g) => /LINT001/.test(g))).toBe(true);
+
+    expect(result.termProposals).toHaveLength(1);
+    expect(result.termProposals[0]).toMatchObject({
+      entity: 'order',
+      field: 'client.program',
+      path: 'order.client.program',
+      dataType: 'String',
+      entityExists: true,
+      allowedValues: ['SCOPE'],
+    });
+  });
+
+  it('normalizes a MODEL-emitted proposal with a nested split (entity="order.client") to the canonical entity ("order")', () => {
+    const result = makeGate().validate(
+      {
+        candidateJson: null,
+        confidence: 0.1,
+        unmappedPhrases: ['SCOPE program client'],
+        gaps: [],
+        termProposals: [
+          {
+            entity: 'order.client',
+            field: 'program',
+            dataType: 'String',
+            allowedValues: ['SCOPE'],
+          },
+        ],
+      },
+      PROVENANCE,
+    );
+
+    expect(result.termProposals).toHaveLength(1);
+    // entity must be the first path segment (a real registry entity the UI can add a field to),
+    // NOT the model's raw "order.client" split.
+    expect(result.termProposals[0]).toMatchObject({
+      entity: 'order',
+      field: 'client.program',
+      path: 'order.client.program',
+      dataType: 'String',
+      entityExists: true,
+      allowedValues: ['SCOPE'],
+    });
+  });
+
+  it('synthesizes a TermProposal for an unknown subject on a NEW entity (kit.weight GreaterThan 5 → Number, entityExists false)', () => {
+    const ruleJson = JSON.stringify({
+      key: 'NLP2',
+      name: 'Heavy kit hold',
+      onSuccess: { type: 'Continue' },
+      onFailure: { type: 'CompleteHold', scope: 'order', reason: 'x' },
+      assert: {
+        type: 'leaf',
+        subject: 'kit.weight',
+        operator: 'GreaterThan',
+        value: 5,
+      },
+    });
+    const result = makeGate().validate(
+      {
+        candidateJson: ruleJson,
+        confidence: 0.8,
+        unmappedPhrases: [],
+        gaps: [],
+      },
+      PROVENANCE,
+    );
+
+    expect(result.candidate).toBeNull();
+    expect(result.termProposals).toHaveLength(1);
+    expect(result.termProposals[0]).toMatchObject({
+      entity: 'kit',
+      field: 'weight',
+      path: 'kit.weight',
+      dataType: 'Number',
+      entityExists: false,
+    });
+    expect(result.termProposals[0].allowedValues).toBeUndefined();
+  });
+
+  it('emits NO term proposals for a fully-grounded candidate (specimen.fixationTime WithinRange)', () => {
+    const ruleJson = JSON.stringify({
+      key: 'NLP3',
+      name: 'Fixation time window',
+      onSuccess: { type: 'Continue' },
+      onFailure: { type: 'Warning', scope: 'specimen', reason: 'x' },
+      assert: {
+        type: 'leaf',
+        subject: 'specimen.fixationTime',
+        operator: 'WithinRange',
+        value: [6, 72],
+      },
+    });
+    const result = makeGate().validate(
+      {
+        candidateJson: ruleJson,
+        confidence: 0.9,
+        unmappedPhrases: [],
+        gaps: [],
+      },
+      PROVENANCE,
+    );
+
+    expect(result.candidate).not.toBeNull();
+    expect(result.termProposals).toHaveLength(0);
   });
 });

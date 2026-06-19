@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { DryRunResult } from '../dry-run-previewer';
 import { LintReport } from '../vocabulary-linter';
-import { InterpretationResult } from '../llm/interpreter';
+import { InterpretationResult, TermProposal } from '../llm/interpreter';
 import { RuleDefinition } from '../../vdf/types';
 import { VocabularyTree } from '../../rules/vocabulary-projection.service';
 
@@ -56,6 +56,44 @@ export class RuleJsonRequestDto {
   ruleJson!: Record<string, unknown>;
 }
 
+/**
+ * A structured "missing vocabulary term" proposal projected for the API response.
+ * The Authoring UI uses this to offer an inline "add the term and re-interpret".
+ */
+export class TermProposalDto {
+  @ApiPropertyOptional({
+    description: 'The natural-language phrase that motivated the term.',
+  })
+  phrase?: string;
+  @ApiProperty({
+    description: "The proposed entity (the path's first segment).",
+  })
+  entity!: string;
+  @ApiProperty({
+    description: 'The proposed field (the remainder of the path).',
+  })
+  field!: string;
+  @ApiProperty({ description: 'The full canonical entity.field subject path.' })
+  path!: string;
+  @ApiProperty({
+    enum: ['String', 'Number', 'Date', 'Boolean', 'Collection'],
+    description: 'The inferred registry field data type.',
+  })
+  dataType!: TermProposal['dataType'];
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'A closed value set inferred from an InSet/Equals literal array.',
+  })
+  allowedValues?: string[];
+  @ApiProperty({
+    description: 'Whether the entity is already a known registry entity.',
+  })
+  entityExists!: boolean;
+  @ApiProperty({ description: 'Why this term is being proposed.' })
+  rationale!: string;
+}
+
 /** The interpreter result projected for the API response (mirrors `InterpretResponse`). */
 export class InterpretResponseDto {
   @ApiPropertyOptional({
@@ -67,6 +105,12 @@ export class InterpretResponseDto {
   @ApiProperty() confidence!: number;
   @ApiProperty({ type: [String] }) unmappedPhrases!: string[];
   @ApiProperty({ type: [String] }) gaps!: string[];
+  @ApiProperty({
+    type: [TermProposalDto],
+    description:
+      'Structured missing-vocabulary-term proposals the UI can add inline, then re-interpret.',
+  })
+  termProposals!: TermProposalDto[];
 
   static from(result: InterpretationResult): InterpretResponseDto {
     return {
@@ -77,6 +121,7 @@ export class InterpretResponseDto {
       confidence: result.confidence,
       unmappedPhrases: result.unmappedPhrases,
       gaps: result.gaps,
+      termProposals: result.termProposals,
     };
   }
 }

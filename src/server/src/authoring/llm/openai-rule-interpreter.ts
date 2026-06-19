@@ -21,7 +21,7 @@ import {
   IRuleInterpreter,
   InterpretationResult,
 } from './interpreter';
-import { ModelEnvelope } from './model-envelope';
+import { ModelEnvelope, ModelTermProposal } from './model-envelope';
 import { OpenAiOptions, canCallLiveModel } from './openai.config';
 import {
   buildSystemPrompt,
@@ -45,7 +45,13 @@ const MAX_NATURAL_LANGUAGE_LENGTH = 4000;
 const ENVELOPE_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['candidateJson', 'confidence', 'unmappedPhrases', 'gaps'],
+  required: [
+    'candidateJson',
+    'confidence',
+    'unmappedPhrases',
+    'gaps',
+    'termProposals',
+  ],
   properties: {
     candidateJson: {
       type: ['string', 'null'],
@@ -67,6 +73,57 @@ const ENVELOPE_JSON_SCHEMA = {
       items: { type: 'string' },
       description:
         'Missing concepts or clarifications; if non-empty, candidateJson is typically null.',
+    },
+    // Under strict mode every property is required and additionalProperties is false,
+    // so optional members (phrase, dataType, allowedValues) are expressed as nullable.
+    termProposals: {
+      type: 'array',
+      description:
+        'Structured missing-vocabulary-term proposals: when a concept is NOT in the controlled vocabulary, propose the entity.field to add (rather than inventing a rule that uses it).',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'entity',
+          'field',
+          'dataType',
+          'allowedValues',
+          'rationale',
+          'phrase',
+        ],
+        properties: {
+          entity: {
+            type: 'string',
+            description:
+              'The existing entity the missing concept most likely belongs to (from the entity list), or a sensible new entity name.',
+          },
+          field: {
+            type: 'string',
+            description: 'A camelCase field name for the missing concept.',
+          },
+          dataType: {
+            type: ['string', 'null'],
+            enum: ['String', 'Number', 'Date', 'Boolean', 'Collection', null],
+            description:
+              'The inferred data type of the missing field; null defaults to String.',
+          },
+          allowedValues: {
+            type: ['array', 'null'],
+            items: { type: 'string' },
+            description:
+              'The enumerated values when the concept is a closed value set; otherwise null.',
+          },
+          rationale: {
+            type: 'string',
+            description: 'Why this term is being proposed.',
+          },
+          phrase: {
+            type: ['string', 'null'],
+            description:
+              'The natural-language phrase that motivated the term, or null.',
+          },
+        },
+      },
     },
   },
 } as const;
@@ -187,8 +244,9 @@ function parseEnvelope(content: string): ModelEnvelope {
   const confidence = typeof obj.confidence === 'number' ? obj.confidence : 0;
   const unmappedPhrases = toStringArray(obj.unmappedPhrases);
   const gaps = toStringArray(obj.gaps);
+  const termProposals = toModelTermProposals(obj.termProposals);
 
-  return { candidateJson, confidence, unmappedPhrases, gaps };
+  return { candidateJson, confidence, unmappedPhrases, gaps, termProposals };
 }
 
 /** Coerces an unknown value into a string[] (filtering non-strings). */
@@ -197,4 +255,54 @@ function toStringArray(value: unknown): string[] {
     return [];
   }
   return value.filter((v): v is string => typeof v === 'string');
+}
+
+/**
+ * Coerces the raw `termProposals` array into well-formed {@link ModelTermProposal}s,
+ * keeping only entries that carry the minimum (`entity` + `field`). Tolerant of
+ * missing/nullable optional fields — the gate normalises and merges afterwards.
+ */
+function toModelTermProposals(value: unknown): ModelTermProposal[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const result: ModelTermProposal[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) {
+      continue;
+    }
+    const item = raw as Record<string, unknown>;
+    if (typeof item.entity !== 'string' || typeof item.field !== 'string') {
+      continue;
+    }
+    const proposal: ModelTermProposal = {
+      entity: item.entity,
+      field: item.field,
+    };
+    if (
+      item.dataType === 'String' ||
+      item.dataType === 'Number' ||
+      item.dataType === 'Date' ||
+      item.dataType === 'Boolean' ||
+      item.dataType === 'Collection'
+    ) {
+      proposal.dataType = item.dataType;
+    }
+    if (Array.isArray(item.allowedValues)) {
+      const values = item.allowedValues.filter(
+        (v): v is string => typeof v === 'string',
+      );
+      if (values.length > 0) {
+        proposal.allowedValues = values;
+      }
+    }
+    if (typeof item.rationale === 'string') {
+      proposal.rationale = item.rationale;
+    }
+    if (typeof item.phrase === 'string') {
+      proposal.phrase = item.phrase;
+    }
+    result.push(proposal);
+  }
+  return result;
 }

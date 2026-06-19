@@ -37,12 +37,14 @@ import {
 } from '../../components';
 import { api, type ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { canAdminVocabulary } from '../../lib/vocabulary';
 import { prettyJson, tryParseJson } from '../../lib/utils/json';
 import type { DryRunResponse, InterpretResponse, LintReport, RuleJson } from '../../lib/types/api';
 import { EXAMPLE_PROMPTS } from './examples';
 import { DryRunResults } from './DryRunResults';
 import { SaveRuleDialog } from './SaveRuleDialog';
 import { ScopeSelector } from './ScopeSelector';
+import { MissingVocabularySection } from './MissingVocabularySection';
 import {
   type ScopeSelection,
   EMPTY_SCOPE,
@@ -137,10 +139,13 @@ type RuleTab = 'view' | 'edit';
 
 export function AuthoringPage() {
   const styles = useStyles();
-  const { hasRole } = useAuth();
+  const { hasRole, session } = useAuth();
   const canAuthor = hasRole('Author');
+  const canAdmin = canAdminVocabulary(session?.roles);
 
   const [nl, setNl] = useState('');
+  /** The exact natural language that produced the current interpretation — used for auto re-interpret. */
+  const [lastInterpretedNl, setLastInterpretedNl] = useState('');
   const [scope, setScope] = useState<ScopeSelection>(EMPTY_SCOPE);
   const [interpretedScope, setInterpretedScope] = useState<ScopeSelection>(EMPTY_SCOPE);
   const [interpretation, setInterpretation] = useState<InterpretResponse | null>(null);
@@ -163,9 +168,10 @@ export function AuthoringPage() {
   const interpretMutation = useMutation({
     mutationFn: (text: string) =>
       api.interpret({ naturalLanguage: text, ...buildInterpretScope(scope) }),
-    onSuccess: (res) => {
+    onSuccess: (res, text) => {
       setInterpretation(res);
       setInterpretedScope(scope);
+      setLastInterpretedNl(text);
       adoptCandidate(res.candidate);
       setTab('view');
     },
@@ -185,6 +191,15 @@ export function AuthoringPage() {
     mutationFn: (rule: RuleJson) => api.dryRun(rule),
     onSuccess: (res) => setDryRun(res),
   });
+
+  /**
+   * Re-run interpretation with the SAME natural language that produced the current result, after a
+   * term was added to the registry — so the newly-grounded candidate appears in place.
+   */
+  const reinterpret = () => {
+    const text = lastInterpretedNl.trim();
+    if (text) interpretMutation.mutate(text);
+  };
 
   /** When in edit mode, parse the editor before any rule action; surface parse errors inline. */
   const parsed = tab === 'edit' ? tryParseJson<RuleJson>(editorText) : null;
@@ -215,6 +230,7 @@ export function AuthoringPage() {
 
   const interpretError = interpretMutation.error as ApiError | null;
   const hasRule = effectiveRule !== null;
+  const termProposals = interpretation?.termProposals ?? [];
 
   // Summary chips of the scope that was actually sent with the last interpret, shown near the result.
   const interpretedChips = (() => {
@@ -380,6 +396,15 @@ export function AuthoringPage() {
                           ariaLabel="Scope used for this interpretation"
                         />
                       </div>
+                    )}
+
+                    {/* Term proposals are the ACTIONABLE form of a vocabulary gap — show them first. */}
+                    {termProposals.length > 0 && (
+                      <MissingVocabularySection
+                        proposals={termProposals}
+                        canAdmin={canAdmin}
+                        onReinterpret={reinterpret}
+                      />
                     )}
 
                     {(interpretation.unmappedPhrases.length > 0 ||

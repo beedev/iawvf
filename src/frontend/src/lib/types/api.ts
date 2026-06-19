@@ -74,6 +74,34 @@ export type RuleJson = Record<string, unknown> & {
   scope?: RuleScopeDefinition;
 };
 
+/**
+ * A structured proposal for closing a VOCABULARY GAP: the interpreter could not ground a phrase, so
+ * instead of silently failing it suggests the exact registry term that would make the rule resolvable.
+ * An Admin can add the proposed term (a new field on an existing entity, or a whole new entity + field)
+ * directly from the interpretation panel, after which the rule is re-interpreted against the now-grounded
+ * vocabulary.
+ *
+ * Source of truth: src/server authoring interpret response (`termProposals`).
+ */
+export interface TermProposal {
+  /** The natural-language phrase that could not be grounded (when the interpreter could attribute one). */
+  phrase?: string;
+  /** The entity (registry key) the proposed term belongs to, e.g. `specimen`. */
+  entity: string;
+  /** The field name relative to the entity, e.g. `fixationTime` (may be dotted; trailing `[]` = collection). */
+  field: string;
+  /** The fully-qualified `entity.field` path the proposal would create. */
+  path: string;
+  /** The coarse data type the interpreter inferred for the field. */
+  dataType: FieldDataType;
+  /** An optional closed value set the interpreter inferred from the phrase. */
+  allowedValues?: string[];
+  /** Whether the {@link entity} already exists in the registry (add a field) vs. must be created first. */
+  entityExists: boolean;
+  /** A short, human-readable justification for why this term is proposed. */
+  rationale: string;
+}
+
 export interface InterpretResponse {
   /** The compiled candidate rule, or null if the model produced none. */
   candidate: RuleJson | null;
@@ -83,6 +111,12 @@ export interface InterpretResponse {
   unmappedPhrases: string[];
   /** Identified gaps requiring author clarification. */
   gaps: string[];
+  /**
+   * Structured, actionable proposals for terms that would close the vocabulary gaps. Empty (or absent,
+   * for forward/backward compatibility) when the rule is fully grounded. Optional so older API builds
+   * that predate the feature continue to type-check.
+   */
+  termProposals?: TermProposal[];
 }
 
 /** A single addressable property within a vocabulary object (e.g. `specimen.fixationTime`). */
