@@ -453,3 +453,65 @@ registry. Any Error becomes a *propose-new-term* gap and the candidate is **supp
   `approvedBy`, `approvedAt`) rides on each immutable version; decision traces are
   append-only under a correlation id; registry mutations are Admin-only and audited; logs
   are redacted and structured. **No PHI or facts are ever persisted in traces or logs.**
+
+## 10. Scope & known gaps / future work
+
+### 10.1 Authoring is validate-only (derive & route deferred)
+
+**Decision:** NL authoring is intentionally scoped to **Validation-phase rules** — the
+"require / hold / flag / alert / prevent" family. The engine fully supports `Derive` and
+`Route` phases at runtime, but authoring them is **deferred** until how they should be
+processed (and grounded) is properly defined. The simpler, honest product surfaces only
+what it can reliably author.
+
+Concretely:
+- The interpreter has **no derive/route builder**; a derive/route request simply fails to
+  ground and degrades gracefully (no candidate + a clear gap), like any unsupported
+  sentence. Nothing is invented.
+- The authoring **example chips** list only validation prompts.
+- The corpus **derive/route rules are disabled** in the repository so it reads
+  validate-only: `BL20`, `BL21`, `BL3`, `BL27` (derive) and `PM49`, `PM35_TIME` (route).
+  Their JSON stays in `rules/*.json` and their fixtures are untouched — re-enabling them
+  (or re-importing into a fresh DB) brings them straight back. The 20 enabled rules are
+  all `Validate`-phase.
+
+### 10.2 What re-enabling derive will require
+
+Two derivation shapes exist in the corpus, both runtime-valid:
+
+| Pattern | Example | Shape | Value source |
+|---|---|---|---|
+| **Set-on-condition** | BL20, BL21, BL3 | guard → *no `assert`* → `onFailure: SetValue(Target, Value)`, phase `Derive` | a **literal** |
+| **Default-on-absence** | BL27 | `assert: <field> IsPresent` → `recover: apply-default(Target, Reference)` → `onFailure: Suppressed` | a **reference** (e.g. `PolicyDefaults.fallbackGender`) |
+
+When derive authoring returns, the planned approach is a **deterministic builder**: the
+model extracts slots `{guard, target, value}` and code assembles the shape (so the model
+never authors the awkward no-`assert`/`onFailure` form). It also requires closing a
+grounding hole: the gate must validate a derivation **`Target`** is a real subject and its
+**`Value`** is within `allowedValues` (today only the *presence* of `Target` is checked).
+
+### 10.3 What re-enabling route will require
+
+Corpus routing rules (`PM49`, `PM35_TIME`) take the shape: phase `Route`, a guard, an
+optional `assert`, and `onFailure: RouteToReview{ Destination: <named review queue> }`
+(e.g. `MedicalReview`, `EscalationQueue`). Two prerequisites:
+- a **closed set of routing destinations** so the gate can ground `Destination` (today the
+  linter only checks it is *present*, not that it is a known target — a silent-invention
+  hole mirroring the derivation `Target` one); and
+- a **routing builder** analogous to the derivation one (slots `{guard, assert?,
+  destination}` → the `RouteToReview` shape).
+
+Note routing targets **review queues**, not arbitrary labs — "route to the NY performing
+lab" is not how the corpus models NY handling (that is the `ComplianceAlert` in `BL8`).
+
+### 10.4 `recover` flow & its grounding gap
+
+The `recover` flow sits between an assertion failure and the failure outcome
+(`engine.ts`): when `assert` fails, a defined `recover` strategy runs via `tryRecover`; on
+success it produces `Suppressed` (the failure is healed), otherwise `onFailure` fires.
+`apply-default` (resolve `Reference`/`Value` → `setPath` into `Target`) is implemented;
+`find-alternate-specimen` is a runtime **stub**. `recover` is wired at runtime but exists
+only in the hand-authored corpus (BL27) — there is **no authoring path** for it (it is the
+default-on-absence half of derive above). When added, `recover.parameters.Target` must be
+grounded as a known subject (`lintRecovery` validates `Reference` via `LINT004` but not
+`Target`).
