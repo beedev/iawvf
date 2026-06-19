@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -59,18 +59,36 @@ export function SaveRuleDialog({
   const styles = useStyles();
   const queryClient = useQueryClient();
 
-  const initialRuleSet = (ruleJson['ruleSet'] as string | undefined) ?? '';
-  const [ruleSet, setRuleSet] = useState(initialRuleSet);
+  const [ruleKey, setRuleKey] = useState(
+    (ruleJson['key'] as string | undefined) ?? '',
+  );
+  const [ruleSet, setRuleSet] = useState(
+    (ruleJson['ruleSet'] as string | undefined) ?? '',
+  );
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
 
-  const ruleKey = (ruleJson['key'] as string | undefined) ?? '(unnamed)';
+  // The dialog stays mounted between opens, so re-seed the editable fields from the CURRENT
+  // candidate each time it opens — otherwise the key/ruleSet would reflect a stale rule.
+  useEffect(() => {
+    if (open) {
+      setRuleKey((ruleJson['key'] as string | undefined) ?? '');
+      setRuleSet((ruleJson['ruleSet'] as string | undefined) ?? '');
+      setEffectiveDate(todayIso());
+    }
+  }, [open, ruleJson]);
+
+  // The key is the rule's identity, PROVIDED BY THE AUTHOR — a short code consistent with
+  // the corpus (BL8, PM17, BM99). Letters, digits, and underscores; no spaces.
+  const trimmedKey = ruleKey.trim();
+  const keyValid = /^[A-Za-z0-9_]+$/.test(trimmedKey);
 
   const saveMutation = useMutation<RuleMutationResponse, ApiError>({
     mutationFn: () => {
-      // Patch the rule body with the governance fields before saving.
+      // Patch the rule body with the author-provided key + governance fields before saving.
       const patched: RuleJson = {
         ...ruleJson,
-        ...(ruleSet ? { ruleSet } : {}),
+        key: trimmedKey,
+        ...(ruleSet.trim() ? { ruleSet: ruleSet.trim() } : {}),
         effectiveDate: new Date(`${effectiveDate}T00:00:00Z`).toISOString(),
       };
       return api.createRule({ ruleJson: patched, authorNl, interpreterVersion });
@@ -104,9 +122,30 @@ export function SaveRuleDialog({
             ) : (
               <div className={styles.form}>
                 <Text>
-                  Saving rule <span className={styles.key}>{ruleKey}</span>. It is linted
-                  server-side; a save is rejected if any error-severity findings remain.
+                  The rule is linted server-side; a save is rejected if any error-severity
+                  findings remain.
                 </Text>
+
+                <Field
+                  label="Rule key"
+                  required
+                  hint="The rule's identity — a short code you choose, e.g. BM99 (like BL8, PM17). Letters, digits, underscore; no spaces."
+                  validationState={
+                    trimmedKey === '' ? 'none' : keyValid ? 'success' : 'error'
+                  }
+                  validationMessage={
+                    trimmedKey !== '' && !keyValid
+                      ? 'Use letters, digits, and underscores only (no spaces).'
+                      : undefined
+                  }
+                >
+                  <Input
+                    className={styles.key}
+                    value={ruleKey}
+                    onChange={(_, d) => setRuleKey(d.value)}
+                    placeholder="e.g. BM99"
+                  />
+                </Field>
 
                 <Field label="Rule set" hint="Logical grouping for this rule (optional).">
                   <Input
@@ -154,7 +193,7 @@ export function SaveRuleDialog({
                 appearance="primary"
                 icon={saveMutation.isPending ? <Spinner size="tiny" /> : <SaveRegular />}
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !effectiveDate}
+                disabled={saveMutation.isPending || !effectiveDate || !keyValid}
               >
                 {saveMutation.isPending ? 'Saving…' : 'Save rule'}
               </Button>

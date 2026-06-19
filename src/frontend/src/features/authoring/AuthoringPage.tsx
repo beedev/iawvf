@@ -37,14 +37,12 @@ import {
 } from '../../components';
 import { api, type ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { canAdminVocabulary } from '../../lib/vocabulary';
 import { prettyJson, tryParseJson } from '../../lib/utils/json';
 import type { DryRunResponse, InterpretResponse, LintReport, RuleJson } from '../../lib/types/api';
 import { EXAMPLE_PROMPTS } from './examples';
 import { DryRunResults } from './DryRunResults';
 import { SaveRuleDialog } from './SaveRuleDialog';
 import { ScopeSelector } from './ScopeSelector';
-import { MissingVocabularySection } from './MissingVocabularySection';
 import {
   type ScopeSelection,
   EMPTY_SCOPE,
@@ -141,11 +139,8 @@ export function AuthoringPage() {
   const styles = useStyles();
   const { hasRole, session } = useAuth();
   const canAuthor = hasRole('Author');
-  const canAdmin = canAdminVocabulary(session?.roles);
 
   const [nl, setNl] = useState('');
-  /** The exact natural language that produced the current interpretation — used for the single re-interpret. */
-  const [lastInterpretedNl, setLastInterpretedNl] = useState('');
   const [scope, setScope] = useState<ScopeSelection>(EMPTY_SCOPE);
   const [interpretedScope, setInterpretedScope] = useState<ScopeSelection>(EMPTY_SCOPE);
   const [interpretation, setInterpretation] = useState<InterpretResponse | null>(null);
@@ -168,10 +163,9 @@ export function AuthoringPage() {
   const interpretMutation = useMutation({
     mutationFn: (text: string) =>
       api.interpret({ naturalLanguage: text, ...buildInterpretScope(scope) }),
-    onSuccess: (res, text) => {
+    onSuccess: (res) => {
       setInterpretation(res);
       setInterpretedScope(scope);
-      setLastInterpretedNl(text);
       adoptCandidate(res.candidate);
       setTab('view');
     },
@@ -191,17 +185,6 @@ export function AuthoringPage() {
     mutationFn: (rule: RuleJson) => api.dryRun(rule),
     onSuccess: (res) => setDryRun(res),
   });
-
-  /**
-   * Re-run interpretation ONCE with the SAME natural language that produced the current result, after a
-   * BATCH of terms was added to the registry — so the now-grounded candidate appears in place. The
-   * Missing-vocabulary section calls this exactly once per explicit "Add … & re-interpret" click; it
-   * never auto-loops, so a still-incomplete result simply surfaces a fresh batch.
-   */
-  const reinterpret = () => {
-    const text = lastInterpretedNl.trim();
-    if (text) interpretMutation.mutate(text);
-  };
 
   /** When in edit mode, parse the editor before any rule action; surface parse errors inline. */
   const parsed = tab === 'edit' ? tryParseJson<RuleJson>(editorText) : null;
@@ -232,9 +215,9 @@ export function AuthoringPage() {
 
   const interpretError = interpretMutation.error as ApiError | null;
   const hasRule = effectiveRule !== null;
-  const termProposals = interpretation?.termProposals ?? [];
-  // The backend pairs an evaluation delta with non-empty proposals; null when nothing would help.
-  const proposalEvaluation = interpretation?.proposalEvaluation ?? null;
+  // EXISTING registry properties the deterministic suggester found relevant to the text.
+  // Empty (with an interpretation present) means "unable to suggest" — nothing matched.
+  const vocabularySuggestions = interpretation?.vocabularySuggestions ?? [];
 
   // Grounding verdict gates Save. A partially-grounded candidate (a phrase still unmapped) is
   // provisional and must not be saved as-is — the author resolves it by adding the missing term &
@@ -558,16 +541,34 @@ export function AuthoringPage() {
                       </MessageBar>
                     )}
 
-                    {/* OPTIONAL grounding improvement — only the proposals that demonstrably help, with
-                        the evaluation delta. Never blocks the usable candidate above. */}
-                    {termProposals.length > 0 && (
-                      <MissingVocabularySection
-                        proposals={termProposals}
-                        proposalEvaluation={proposalEvaluation}
-                        canAdmin={canAdmin}
-                        onReinterpret={reinterpret}
-                      />
-                    )}
+                    {/* RELEVANT EXISTING VOCABULARY — deterministic match against what already
+                        exists. Never invents a term; when nothing matches, it says so and stops. */}
+                    <MessageBar intent="info" role="status">
+                      <MessageBarBody>
+                        <MessageBarTitle>Relevant existing vocabulary</MessageBarTitle>
+                        {vocabularySuggestions.length > 0 ? (
+                          <>
+                            <div style={{ marginTop: 4 }}>
+                              <Text size={200} block>
+                                Existing properties that look relevant to your text:
+                              </Text>
+                              <div className={styles.gapList} style={{ marginTop: 6 }}>
+                                {vocabularySuggestions.map((s) => (
+                                  <StatusBadge key={s.path} kind="info">
+                                    {`${s.path} · ${s.dataType}`}
+                                  </StatusBadge>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <Text size={200} block style={{ marginTop: 4 }}>
+                            Unable to suggest relevant vocabulary from your text — nothing in the
+                            controlled vocabulary matched.
+                          </Text>
+                        )}
+                      </MessageBarBody>
+                    </MessageBar>
                   </>
                 )}
               </Panel>

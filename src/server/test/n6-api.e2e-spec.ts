@@ -240,47 +240,54 @@ describe('N6 API surface (e2e)', () => {
       expect(body.confidence).toBeGreaterThan(0);
     });
 
-    it('POST /api/authoring/interpret (stub) sandbox-evaluates an unknown-concept proposal and attaches proposalEvaluation', async () => {
-      // The offline stub is grounding-agnostic, so adding the proposed term cannot make
-      // it ground a candidate — the sandbox evaluation reports improves=false and the
-      // (unhelpful) proposals are dropped, but the evaluation itself is always present
-      // when there was a proposal to evaluate. This proves the one-call sandbox flow
-      // runs end-to-end through the API.
+    it('POST /api/authoring/interpret never invents terms — it suggests EXISTING properties relevant to the text', async () => {
+      // No term invention and no sandbox evaluation: instead, the deterministic suggester
+      // surfaces which EXISTING registry properties are relevant to the author's text.
+      // "specimen"/"order" are real entities, so relevant existing properties come back;
+      // termProposals stays empty and proposalEvaluation is null.
       const token = await login('author', 'author-pw');
       const res = await request(app.getHttpServer())
         .post('/api/authoring/interpret')
         .set('Authorization', `Bearer ${token}`)
         .send({
           naturalLanguage:
-            'Hold the order when the specimen colour is abnormal.',
+            'Hold the order when the specimen fixation time is high.',
         })
         .expect(200);
 
       const body = res.body as {
-        candidate: Record<string, unknown> | null;
-        termProposals: {
-          entity: string;
-          field: string;
+        termProposals: unknown[];
+        proposalEvaluation: unknown | null;
+        vocabularySuggestions: {
           path: string;
           dataType: string;
-          entityExists: boolean;
+          matched: string[];
         }[];
-        proposalEvaluation: {
-          improves: boolean;
-          groundsCandidate: boolean;
-          baselineHadCandidate: boolean;
-          baselineConfidence: number;
-          projectedConfidence: number;
-          unmappedBefore: number;
-          unmappedAfter: number;
-        } | null;
       };
-      // A proposal existed, so a sandbox evaluation was performed and is reported.
-      expect(body.proposalEvaluation).not.toBeNull();
-      expect(body.proposalEvaluation?.improves).toBe(false);
-      expect(body.proposalEvaluation?.groundsCandidate).toBe(false);
-      // The stub cannot ground the concept, so the unhelpful proposal is dropped.
+      // No invention, no sandbox.
       expect(body.termProposals).toEqual([]);
+      expect(body.proposalEvaluation).toBeNull();
+      // Relevant EXISTING properties are suggested (every one a real, dotted registry path).
+      expect(Array.isArray(body.vocabularySuggestions)).toBe(true);
+      expect(body.vocabularySuggestions.length).toBeGreaterThan(0);
+      for (const s of body.vocabularySuggestions) {
+        expect(s.path).toContain('.');
+        expect(s.matched.length).toBeGreaterThan(0);
+      }
+      expect(body.vocabularySuggestions.map((s) => s.path)).toContain(
+        'specimen.fixationTime',
+      );
+    });
+
+    it('POST /api/authoring/interpret returns empty suggestions ("unable to suggest") when nothing existing matches', async () => {
+      const token = await login('author', 'author-pw');
+      const res = await request(app.getHttpServer())
+        .post('/api/authoring/interpret')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ naturalLanguage: 'xyzzy plugh frobnicate quux.' })
+        .expect(200);
+      const body = res.body as { vocabularySuggestions: unknown[] };
+      expect(body.vocabularySuggestions).toEqual([]);
     });
 
     it('POST /api/authoring/interpret (stub) returns no term proposals for a grounded sentence', async () => {

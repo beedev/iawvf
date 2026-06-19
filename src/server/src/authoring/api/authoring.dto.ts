@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { DryRunResult } from '../dry-run-previewer';
 import { LintReport } from '../vocabulary-linter';
+import { VocabularySuggestion } from '../vocabulary-suggester';
 import {
   GroundingSummary,
   InterpretationResult,
@@ -179,6 +180,27 @@ export class GroundingDto {
   }
 }
 
+/** A relevant EXISTING vocabulary property suggested for the author's text (never invented). */
+export class VocabularySuggestionDto {
+  @ApiProperty({ description: 'The existing registry property path, e.g. specimen.bodySite.' })
+  path!: string;
+  @ApiProperty({ description: 'The property data type name.' })
+  dataType!: string;
+  @ApiProperty({
+    type: [String],
+    description: 'The text tokens that matched this property (the reason it was suggested).',
+  })
+  matched!: string[];
+
+  static from(suggestion: VocabularySuggestion): VocabularySuggestionDto {
+    return {
+      path: suggestion.path,
+      dataType: suggestion.dataType,
+      matched: suggestion.matched,
+    };
+  }
+}
+
 /** The interpreter result projected for the API response (mirrors `InterpretResponse`). */
 export class InterpretResponseDto {
   @ApiPropertyOptional({
@@ -214,10 +236,19 @@ export class InterpretResponseDto {
   })
   proposalEvaluation?: ProposalEvaluationDto | null;
 
+  @ApiProperty({
+    type: [VocabularySuggestionDto],
+    description:
+      'EXISTING registry properties relevant to the author\'s text (deterministic match; ' +
+      'never invented). Empty means "unable to suggest" — nothing in the vocabulary matched.',
+  })
+  vocabularySuggestions!: VocabularySuggestionDto[];
+
   static from(
     result: InterpretationResult & {
       proposalEvaluation?: ProposalEvaluation | null;
     },
+    vocabularySuggestions: readonly VocabularySuggestion[] = [],
   ): InterpretResponseDto {
     return {
       candidate:
@@ -234,6 +265,9 @@ export class InterpretResponseDto {
         result.proposalEvaluation === null
           ? null
           : ProposalEvaluationDto.from(result.proposalEvaluation),
+      vocabularySuggestions: vocabularySuggestions.map(
+        VocabularySuggestionDto.from,
+      ),
     };
   }
 }

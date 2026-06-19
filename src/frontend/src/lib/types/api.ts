@@ -170,6 +170,22 @@ export interface InterpretResponse {
    * backend found nothing that helps. Optional for forward/backward compatibility.
    */
   proposalEvaluation?: ProposalEvaluation | null;
+  /**
+   * EXISTING registry properties relevant to the author's text (deterministic match — never invented).
+   * Empty means "unable to suggest": nothing in the controlled vocabulary matched. Optional/absent for
+   * compatibility with API builds that predate the suggester.
+   */
+  vocabularySuggestions?: VocabularySuggestion[];
+}
+
+/** A relevant EXISTING vocabulary property suggested for the author's text (never invented). */
+export interface VocabularySuggestion {
+  /** The existing registry property path, e.g. `specimen.bodySite`. */
+  path: string;
+  /** The property data type name (e.g. `String`, `Number`). */
+  dataType: string;
+  /** The text tokens that matched this property (the reason it was suggested). */
+  matched: string[];
 }
 
 /** A single addressable property within a vocabulary object (e.g. `specimen.fixationTime`). */

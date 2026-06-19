@@ -21,6 +21,7 @@ import { VocabularyProjectionService } from '../../rules/vocabulary-projection.s
 import { parseRuleJson } from '../../vdf/api/rule-json.helper';
 import { AuthoringService } from '../authoring.service';
 import { RuleInterpreterService } from '../llm/rule-interpreter.service';
+import { suggestRelevantProperties } from '../vocabulary-suggester';
 import {
   DryRunResponseDto,
   InterpretRequestDto,
@@ -91,14 +92,27 @@ export class AuthoringController {
     }
 
     try {
-      // Interpret AND sandbox-evaluate any missing-vocabulary proposals in a single
-      // pass: proposals are surfaced only when adding them demonstrably improves the
-      // interpretation (one extra LLM call, never a loop).
-      const result = await this.interpreter.interpretWithEvaluation(
+      // Interpret the rule against the scoped grounding (produces the structured candidate
+      // and the deterministic grounding/save verdict). NO term invention: instead of
+      // proposing NEW vocabulary, we deterministically suggest which EXISTING properties
+      // are relevant to the author's text — and surface "unable to suggest" when none are.
+      const result = await this.interpreter.interpretScoped(
         request.naturalLanguage,
         scope.subjects,
       );
-      return InterpretResponseDto.from(result);
+      const vocabularySuggestions = suggestRelevantProperties(
+        request.naturalLanguage,
+        scope.subjects.map((s) => ({
+          path: s.path,
+          dataType: s.dataType,
+          allowedValues: s.allowedValues,
+        })),
+      );
+      // Never surface invented terms — the suggester only ever returns existing properties.
+      return InterpretResponseDto.from(
+        { ...result, termProposals: [] },
+        vocabularySuggestions,
+      );
     } catch (error) {
       // The facade falls back to the offline stub on a live failure, so reaching here
       // means the grounding itself was unavailable. Degrade to 503 — never a 500 that
