@@ -144,7 +144,7 @@ export function AuthoringPage() {
   const canAdmin = canAdminVocabulary(session?.roles);
 
   const [nl, setNl] = useState('');
-  /** The exact natural language that produced the current interpretation — used for auto re-interpret. */
+  /** The exact natural language that produced the current interpretation — used for the single re-interpret. */
   const [lastInterpretedNl, setLastInterpretedNl] = useState('');
   const [scope, setScope] = useState<ScopeSelection>(EMPTY_SCOPE);
   const [interpretedScope, setInterpretedScope] = useState<ScopeSelection>(EMPTY_SCOPE);
@@ -193,8 +193,10 @@ export function AuthoringPage() {
   });
 
   /**
-   * Re-run interpretation with the SAME natural language that produced the current result, after a
-   * term was added to the registry — so the newly-grounded candidate appears in place.
+   * Re-run interpretation ONCE with the SAME natural language that produced the current result, after a
+   * BATCH of terms was added to the registry — so the now-grounded candidate appears in place. The
+   * Missing-vocabulary section calls this exactly once per explicit "Add … & re-interpret" click; it
+   * never auto-loops, so a still-incomplete result simply surfaces a fresh batch.
    */
   const reinterpret = () => {
     const text = lastInterpretedNl.trim();
@@ -231,6 +233,8 @@ export function AuthoringPage() {
   const interpretError = interpretMutation.error as ApiError | null;
   const hasRule = effectiveRule !== null;
   const termProposals = interpretation?.termProposals ?? [];
+  // The backend pairs an evaluation delta with non-empty proposals; null when nothing would help.
+  const proposalEvaluation = interpretation?.proposalEvaluation ?? null;
 
   // Summary chips of the scope that was actually sent with the last interpret, shown near the result.
   const interpretedChips = (() => {
@@ -398,52 +402,6 @@ export function AuthoringPage() {
                       </div>
                     )}
 
-                    {/* Term proposals are the ACTIONABLE form of a vocabulary gap — show them first. */}
-                    {termProposals.length > 0 && (
-                      <MissingVocabularySection
-                        proposals={termProposals}
-                        canAdmin={canAdmin}
-                        onReinterpret={reinterpret}
-                      />
-                    )}
-
-                    {(interpretation.unmappedPhrases.length > 0 ||
-                      interpretation.gaps.length > 0) && (
-                      <MessageBar intent="warning" role="status">
-                        <MessageBarBody>
-                          <MessageBarTitle>Needs your attention</MessageBarTitle>
-                          {interpretation.unmappedPhrases.length > 0 && (
-                            <div style={{ marginTop: 6 }}>
-                              <Text size={200} block weight="semibold">
-                                Unmapped phrases (not grounded in the vocabulary):
-                              </Text>
-                              <div className={styles.gapList} style={{ marginTop: 6 }}>
-                                {interpretation.unmappedPhrases.map((p) => (
-                                  <StatusBadge key={p} kind="warning">
-                                    {p}
-                                  </StatusBadge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {interpretation.gaps.length > 0 && (
-                            <div style={{ marginTop: 8 }}>
-                              <Text size={200} block weight="semibold">
-                                Gaps requiring clarification:
-                              </Text>
-                              <div className={styles.gapList} style={{ marginTop: 6 }}>
-                                {interpretation.gaps.map((g) => (
-                                  <StatusBadge key={g} kind="info">
-                                    {g}
-                                  </StatusBadge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </MessageBarBody>
-                      </MessageBar>
-                    )}
-
                     {hasRule ? (
                       tab === 'view' ? (
                         <JsonView value={ruleJson} label="Interpreted structured rule (JSON)" />
@@ -529,6 +487,56 @@ export function AuthoringPage() {
                           Save…
                         </Button>
                       </div>
+                    )}
+
+                    {/* Non-grounding clarification gaps remain informational (distinct from the
+                        actionable, OPTIONAL term proposals below). */}
+                    {(interpretation.unmappedPhrases.length > 0 ||
+                      interpretation.gaps.length > 0) && (
+                      <MessageBar intent="warning" role="status">
+                        <MessageBarBody>
+                          <MessageBarTitle>For your awareness</MessageBarTitle>
+                          {interpretation.unmappedPhrases.length > 0 && (
+                            <div style={{ marginTop: 6 }}>
+                              <Text size={200} block weight="semibold">
+                                Unmapped phrases (not grounded in the vocabulary):
+                              </Text>
+                              <div className={styles.gapList} style={{ marginTop: 6 }}>
+                                {interpretation.unmappedPhrases.map((p) => (
+                                  <StatusBadge key={p} kind="warning">
+                                    {p}
+                                  </StatusBadge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {interpretation.gaps.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <Text size={200} block weight="semibold">
+                                Gaps requiring clarification:
+                              </Text>
+                              <div className={styles.gapList} style={{ marginTop: 6 }}>
+                                {interpretation.gaps.map((g) => (
+                                  <StatusBadge key={g} kind="info">
+                                    {g}
+                                  </StatusBadge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </MessageBarBody>
+                      </MessageBar>
+                    )}
+
+                    {/* OPTIONAL grounding improvement — only the proposals that demonstrably help, with
+                        the evaluation delta. Never blocks the usable candidate above. */}
+                    {termProposals.length > 0 && (
+                      <MissingVocabularySection
+                        proposals={termProposals}
+                        proposalEvaluation={proposalEvaluation}
+                        canAdmin={canAdmin}
+                        onReinterpret={reinterpret}
+                      />
                     )}
                   </>
                 )}

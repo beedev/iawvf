@@ -61,6 +61,35 @@ export interface TermProposal {
   rationale: string;
 }
 
+/**
+ * The verdict of a single SANDBOX re-interpretation that probes whether adding the
+ * (deduped) {@link TermProposal}s to the grounding vocabulary would DEMONSTRABLY
+ * improve the interpretation — the evidence the Authoring UI uses to decide whether
+ * to surface the proposals at all (vs. "no vocabulary change would help; the current
+ * candidate is your result"). Produced by exactly ONE extra interpret call; never a
+ * loop.
+ */
+export interface ProposalEvaluation {
+  /** Confidence of the BASE interpretation (current vocabulary). */
+  baselineConfidence: number;
+  /** Confidence of the SANDBOX interpretation (vocabulary + proposed terms). */
+  projectedConfidence: number;
+  /** Whether the SANDBOX interpretation produced a (non-null) candidate. */
+  groundsCandidate: boolean;
+  /** Whether the BASE interpretation already had a (non-null) candidate. */
+  baselineHadCandidate: boolean;
+  /** Count of unmapped phrases BEFORE adding the proposed terms. */
+  unmappedBefore: number;
+  /** Count of unmapped phrases AFTER adding the proposed terms (sandbox). */
+  unmappedAfter: number;
+  /**
+   * Whether adding the proposed terms DEMONSTRABLY improves the interpretation:
+   * the sandbox grounds a candidate AND (the baseline had none, OR confidence rose
+   * meaningfully, OR fewer phrases were left unmapped).
+   */
+  improves: boolean;
+}
+
 /** The outcome of interpreting one natural-language rule. Mirrors `InterpretationResult`. */
 export interface InterpretationResult {
   /**
@@ -86,6 +115,17 @@ export interface InterpretationResult {
   interpreterVersion: string;
   /** Provenance: the model id used (the literal model for stub/offline runs). */
   model: string;
+}
+
+/**
+ * An {@link InterpretationResult} enriched with the SANDBOX {@link ProposalEvaluation}.
+ * `proposalEvaluation` is `null` when there were no proposals to evaluate (so no
+ * sandbox call was made); non-null when a single sandbox re-interpretation ran. When
+ * `proposalEvaluation.improves` is false the {@link InterpretationResult.termProposals}
+ * are dropped (`[]`) — the proposals would not help, so the current candidate stands.
+ */
+export interface EvaluatedInterpretationResult extends InterpretationResult {
+  proposalEvaluation: ProposalEvaluation | null;
 }
 
 /** Translates plain-English rules into grounded structured candidates. */

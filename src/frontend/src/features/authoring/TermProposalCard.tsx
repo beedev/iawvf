@@ -4,23 +4,23 @@ import {
   tokens,
   shorthands,
   Button,
+  Checkbox,
   Dropdown,
   Option,
   Field,
   Input,
   Text,
-  Spinner,
   TagGroup,
   InteractionTag,
   InteractionTagPrimary,
   InteractionTagSecondary,
 } from '@fluentui/react-components';
-import { AddRegular, LockClosedRegular } from '@fluentui/react-icons';
+import { AddRegular } from '@fluentui/react-icons';
 import { fonts, radius, space } from '../../theme/tokens';
 import { StatusBadge } from '../../components';
 import { FIELD_DATA_TYPES } from '../../lib/vocabulary';
 import type { FieldDataType, TermProposal } from '../../lib/types/api';
-import { initialTermForm, type TermProposalFormState } from './buildTermPayloads';
+import type { TermProposalFormState } from './buildTermPayloads';
 
 const useStyles = makeStyles({
   card: {
@@ -32,7 +32,14 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
     ...shorthands.border('1px', 'solid', tokens.colorNeutralStroke2),
   },
+  /** Selected rows read slightly forward; deselected ones recede (calm, not alarming). */
+  cardSelected: {
+    ...shorthands.borderColor(tokens.colorBrandStroke2),
+    backgroundColor: tokens.colorNeutralBackground1,
+  },
+  cardDeselected: { opacity: 0.62 },
   topRow: { display: 'flex', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' },
+  selectBox: { flexShrink: 0 },
   path: {
     fontFamily: fonts.mono,
     fontSize: '13px',
@@ -47,58 +54,65 @@ const useStyles = makeStyles({
   tagInputRow: { display: 'flex', gap: space.sm, alignItems: 'flex-end' },
   tagInput: { flex: 1 },
   mono: { fontFamily: fonts.mono },
-  actions: { display: 'flex', alignItems: 'center', gap: space.md, flexWrap: 'wrap' },
-  readonlyNote: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    color: tokens.colorNeutralForeground3,
-    fontSize: '12.5px',
-  },
 });
 
 export interface TermProposalCardProps {
   proposal: TermProposal;
-  /** When true, the Admin add controls are enabled; otherwise the card is read-only with a note. */
+  /** Whether this proposal is selected for the batch add. Controlled by the section. */
+  selected: boolean;
+  /** The (possibly edited) form state for this proposal. Controlled by the section. */
+  form: TermProposalFormState;
+  /** When true, the Admin selection + edit controls are enabled; otherwise the card is read-only. */
   canAdmin: boolean;
-  /** True while this specific proposal's add → re-interpret cycle is in flight. */
-  isAdding: boolean;
-  /** Whether ANY proposal on the panel is currently being added (disables others to avoid races). */
+  /** Disables interaction while a batch add → re-interpret is in flight. */
   isBusy: boolean;
-  /** Invoked with the (possibly edited) form when the Admin clicks "Add to vocabulary". */
-  onAdd: (proposal: TermProposal, form: TermProposalFormState) => void;
+  /** Toggle this proposal's inclusion in the batch. */
+  onToggleSelected: (proposal: TermProposal, selected: boolean) => void;
+  /** Apply an edit to this proposal's form (data type / allowed values). */
+  onFormChange: (proposal: TermProposal, form: TermProposalFormState) => void;
 }
 
 /**
- * One vocabulary-gap proposal rendered as an editable card: the proposed `entity.field` path (mono), a
- * badge stating whether it creates a new entity or adds a field to an existing one, an editable data-type
- * dropdown and allowed-values tag input (both pre-filled from the proposal), the interpreter's rationale,
- * and a primary "Add to vocabulary" button. For non-admins the controls are read-only and a note explains
- * that an administrator must add the term before re-interpreting.
+ * One vocabulary-gap proposal rendered as an editable, SELECTABLE row in a batch. A leading checkbox
+ * includes/excludes the proposal from the single batch add; the proposed `entity.field` path (mono) and
+ * a badge state whether it creates a new entity or adds a field; an editable data-type dropdown and
+ * allowed-values tag input (pre-filled from the proposal) apply when this proposal is added.
  *
- * The card owns its OWN form state (seeded once from the proposal) so each row is independently editable.
+ * This card is PRESENTATIONAL: it owns no add/network logic and never triggers a re-interpret. Selection
+ * and form state are LIFTED to {@link MissingVocabularySection} so all selected proposals add in one
+ * batch followed by exactly one re-interpret — the fix for the old per-add re-interpret loop. For
+ * non-admins the controls are read-only (the section renders the "an administrator must add" note once).
  */
 export function TermProposalCard({
   proposal,
+  selected,
+  form,
   canAdmin,
-  isAdding,
   isBusy,
-  onAdd,
+  onToggleSelected,
+  onFormChange,
 }: TermProposalCardProps) {
   const styles = useStyles();
-  const [form, setForm] = useState<TermProposalFormState>(() => initialTermForm(proposal));
   const [pendingValue, setPendingValue] = useState('');
+
+  const disabled = !canAdmin || isBusy;
+  const cardClass = `${styles.card} ${
+    canAdmin ? (selected ? styles.cardSelected : styles.cardDeselected) : ''
+  }`.trim();
 
   const commitPendingValue = () => {
     const v = pendingValue.trim();
     if (v.length === 0) return;
-    setForm((f) =>
-      f.allowedValues.includes(v) ? f : { ...f, allowedValues: [...f.allowedValues, v] },
-    );
+    if (!form.allowedValues.includes(v)) {
+      onFormChange(proposal, { ...form, allowedValues: [...form.allowedValues, v] });
+    }
     setPendingValue('');
   };
   const removeValue = (value: string) =>
-    setForm((f) => ({ ...f, allowedValues: f.allowedValues.filter((v) => v !== value) }));
+    onFormChange(proposal, {
+      ...form,
+      allowedValues: form.allowedValues.filter((v) => v !== value),
+    });
 
   const badge = proposal.entityExists ? (
     <StatusBadge kind="info">new field on {proposal.entity}</StatusBadge>
@@ -107,8 +121,18 @@ export function TermProposalCard({
   );
 
   return (
-    <div className={styles.card} data-testid="term-proposal" data-path={proposal.path}>
+    <div className={cardClass} data-testid="term-proposal" data-path={proposal.path}>
       <div className={styles.topRow}>
+        {canAdmin && (
+          <Checkbox
+            className={styles.selectBox}
+            checked={selected}
+            disabled={isBusy}
+            onChange={(_, d) => onToggleSelected(proposal, d.checked === true)}
+            aria-label={`Include ${proposal.path} in the batch`}
+            data-testid="select-proposal"
+          />
+        )}
         <span className={styles.path}>{proposal.path}</span>
         {badge}
       </div>
@@ -123,10 +147,10 @@ export function TermProposalCard({
             aria-label={`Data type for ${proposal.path}`}
             value={form.dataType}
             selectedOptions={[form.dataType]}
-            disabled={!canAdmin || isBusy}
+            disabled={disabled}
             onOptionSelect={(_, d) => {
               if (d.optionValue) {
-                setForm((f) => ({ ...f, dataType: d.optionValue as FieldDataType }));
+                onFormChange(proposal, { ...form, dataType: d.optionValue as FieldDataType });
               }
             }}
           >
@@ -157,13 +181,13 @@ export function TermProposalCard({
                 }}
                 placeholder="Type a value, press Enter or Add"
                 aria-label={`Add an allowed value for ${proposal.path}`}
-                disabled={!canAdmin || isBusy}
+                disabled={disabled}
               />
               <Button
                 appearance="secondary"
                 icon={<AddRegular />}
                 onClick={commitPendingValue}
-                disabled={!canAdmin || isBusy || pendingValue.trim().length === 0}
+                disabled={disabled || pendingValue.trim().length === 0}
               >
                 Add
               </Button>
@@ -176,39 +200,18 @@ export function TermProposalCard({
                 {form.allowedValues.map((v) => (
                   <InteractionTag key={v} value={v}>
                     <InteractionTagPrimary
-                      hasSecondaryAction={canAdmin && !isBusy}
+                      hasSecondaryAction={!disabled}
                       className={styles.mono}
                     >
                       {v}
                     </InteractionTagPrimary>
-                    {canAdmin && !isBusy && (
-                      <InteractionTagSecondary aria-label={`Remove ${v}`} />
-                    )}
+                    {!disabled && <InteractionTagSecondary aria-label={`Remove ${v}`} />}
                   </InteractionTag>
                 ))}
               </TagGroup>
             )}
           </div>
         </Field>
-      </div>
-
-      <div className={styles.actions}>
-        {canAdmin ? (
-          <Button
-            appearance="primary"
-            icon={isAdding ? <Spinner size="tiny" /> : <AddRegular />}
-            onClick={() => onAdd(proposal, form)}
-            disabled={isBusy}
-            data-testid="add-to-vocabulary"
-          >
-            {isAdding ? 'Adding…' : 'Add to vocabulary'}
-          </Button>
-        ) : (
-          <span className={styles.readonlyNote} data-testid="admin-required-note">
-            <LockClosedRegular fontSize={15} aria-hidden />
-            An administrator must add this term, then re-interpret.
-          </span>
-        )}
       </div>
     </div>
   );

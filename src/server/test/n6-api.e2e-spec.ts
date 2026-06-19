@@ -240,7 +240,12 @@ describe('N6 API surface (e2e)', () => {
       expect(body.confidence).toBeGreaterThan(0);
     });
 
-    it('POST /api/authoring/interpret (stub) surfaces a structured term proposal for an unknown concept', async () => {
+    it('POST /api/authoring/interpret (stub) sandbox-evaluates an unknown-concept proposal and attaches proposalEvaluation', async () => {
+      // The offline stub is grounding-agnostic, so adding the proposed term cannot make
+      // it ground a candidate — the sandbox evaluation reports improves=false and the
+      // (unhelpful) proposals are dropped, but the evaluation itself is always present
+      // when there was a proposal to evaluate. This proves the one-call sandbox flow
+      // runs end-to-end through the API.
       const token = await login('author', 'author-pw');
       const res = await request(app.getHttpServer())
         .post('/api/authoring/interpret')
@@ -260,14 +265,22 @@ describe('N6 API surface (e2e)', () => {
           dataType: string;
           entityExists: boolean;
         }[];
+        proposalEvaluation: {
+          improves: boolean;
+          groundsCandidate: boolean;
+          baselineHadCandidate: boolean;
+          baselineConfidence: number;
+          projectedConfidence: number;
+          unmappedBefore: number;
+          unmappedAfter: number;
+        } | null;
       };
-      expect(body.termProposals.length).toBeGreaterThan(0);
-      const proposal = body.termProposals[0];
-      expect(proposal.entity).toBe('specimen');
-      expect(proposal.field).toBe('colour');
-      expect(proposal.path).toBe('specimen.colour');
-      expect(proposal.dataType).toBe('String');
-      expect(typeof proposal.entityExists).toBe('boolean');
+      // A proposal existed, so a sandbox evaluation was performed and is reported.
+      expect(body.proposalEvaluation).not.toBeNull();
+      expect(body.proposalEvaluation?.improves).toBe(false);
+      expect(body.proposalEvaluation?.groundsCandidate).toBe(false);
+      // The stub cannot ground the concept, so the unhelpful proposal is dropped.
+      expect(body.termProposals).toEqual([]);
     });
 
     it('POST /api/authoring/interpret (stub) returns no term proposals for a grounded sentence', async () => {
@@ -285,9 +298,12 @@ describe('N6 API surface (e2e)', () => {
       const body = res.body as {
         candidate: Record<string, unknown> | null;
         termProposals: unknown[];
+        proposalEvaluation: unknown;
       };
       expect(body.candidate).not.toBeNull();
       expect(body.termProposals).toEqual([]);
+      // No proposals to evaluate → no sandbox re-interpretation → evaluation is null.
+      expect(body.proposalEvaluation).toBeNull();
     });
 
     it('POST /api/authoring/interpret rejects an unknown scope object (400)', async () => {

@@ -102,6 +102,32 @@ export interface TermProposal {
   rationale: string;
 }
 
+/**
+ * The interpreter's EVALUATION of what adding the proposed terms would do to the result — the evidence
+ * that the proposals actually help. The backend only returns {@link TermProposal}s that DEMONSTRABLY
+ * improve the result (redundant / no-help ones are filtered out server-side), and pairs them with this
+ * delta so the UI can frame the suggestion as a concrete, calm improvement ("raise grounding from X% to
+ * Y%") rather than an error to clear.
+ *
+ * Source of truth: src/server authoring interpret response (`proposalEvaluation`).
+ */
+export interface ProposalEvaluation {
+  /** Grounding confidence of the CURRENT result, before adding the proposed terms (0..1). */
+  baselineConfidence: number;
+  /** Projected grounding confidence AFTER the proposed terms are added (0..1). */
+  projectedConfidence: number;
+  /** Whether adding the terms is projected to produce a usable candidate rule. */
+  groundsCandidate: boolean;
+  /** Whether the current (baseline) result ALREADY has a usable candidate. */
+  baselineHadCandidate: boolean;
+  /** Count of unmapped phrases BEFORE adding the proposed terms. */
+  unmappedBefore: number;
+  /** Count of unmapped phrases projected AFTER adding the proposed terms. */
+  unmappedAfter: number;
+  /** Whether the evaluation concludes the proposals improve the result (the gate for showing them). */
+  improves: boolean;
+}
+
 export interface InterpretResponse {
   /** The compiled candidate rule, or null if the model produced none. */
   candidate: RuleJson | null;
@@ -112,11 +138,17 @@ export interface InterpretResponse {
   /** Identified gaps requiring author clarification. */
   gaps: string[];
   /**
-   * Structured, actionable proposals for terms that would close the vocabulary gaps. Empty (or absent,
-   * for forward/backward compatibility) when the rule is fully grounded. Optional so older API builds
-   * that predate the feature continue to type-check.
+   * Structured, actionable proposals for terms that would close the vocabulary gaps. ALREADY FILTERED
+   * server-side to only the terms that DEMONSTRABLY improve the result — empty when nothing would help.
+   * Optional/absent for forward/backward compatibility with API builds that predate the feature.
    */
   termProposals?: TermProposal[];
+  /**
+   * The evaluation delta for {@link termProposals}: what adding them is projected to do to grounding
+   * confidence and candidate completeness. Present alongside non-empty proposals; null/absent when the
+   * backend found nothing that helps. Optional for forward/backward compatibility.
+   */
+  proposalEvaluation?: ProposalEvaluation | null;
 }
 
 /** A single addressable property within a vocabulary object (e.g. `specimen.fixationTime`). */

@@ -9,7 +9,11 @@ import {
 } from 'class-validator';
 import { DryRunResult } from '../dry-run-previewer';
 import { LintReport } from '../vocabulary-linter';
-import { InterpretationResult, TermProposal } from '../llm/interpreter';
+import {
+  InterpretationResult,
+  ProposalEvaluation,
+  TermProposal,
+} from '../llm/interpreter';
 import { RuleDefinition } from '../../vdf/types';
 import { VocabularyTree } from '../../rules/vocabulary-projection.service';
 
@@ -94,6 +98,57 @@ export class TermProposalDto {
   rationale!: string;
 }
 
+/**
+ * The verdict of the SANDBOX proposal evaluation, projected for the API response. The
+ * Authoring UI uses `improves` to decide whether to surface the term proposals at all
+ * (and `projectedConfidence` to explain how much they would help). `null` on the
+ * response when there were no proposals to evaluate (no sandbox call was made).
+ */
+export class ProposalEvaluationDto {
+  @ApiProperty({
+    description: 'Confidence of the base interpretation (current vocabulary).',
+  })
+  baselineConfidence!: number;
+  @ApiProperty({
+    description:
+      'Confidence of the sandbox interpretation (vocabulary + proposed terms).',
+  })
+  projectedConfidence!: number;
+  @ApiProperty({
+    description: 'Whether the sandbox interpretation produced a candidate.',
+  })
+  groundsCandidate!: boolean;
+  @ApiProperty({
+    description: 'Whether the base interpretation already had a candidate.',
+  })
+  baselineHadCandidate!: boolean;
+  @ApiProperty({
+    description: 'Count of unmapped phrases before adding the proposed terms.',
+  })
+  unmappedBefore!: number;
+  @ApiProperty({
+    description: 'Count of unmapped phrases after adding the proposed terms.',
+  })
+  unmappedAfter!: number;
+  @ApiProperty({
+    description:
+      'Whether adding the proposed terms demonstrably improves the interpretation.',
+  })
+  improves!: boolean;
+
+  static from(evaluation: ProposalEvaluation): ProposalEvaluationDto {
+    return {
+      baselineConfidence: evaluation.baselineConfidence,
+      projectedConfidence: evaluation.projectedConfidence,
+      groundsCandidate: evaluation.groundsCandidate,
+      baselineHadCandidate: evaluation.baselineHadCandidate,
+      unmappedBefore: evaluation.unmappedBefore,
+      unmappedAfter: evaluation.unmappedAfter,
+      improves: evaluation.improves,
+    };
+  }
+}
+
 /** The interpreter result projected for the API response (mirrors `InterpretResponse`). */
 export class InterpretResponseDto {
   @ApiPropertyOptional({
@@ -108,11 +163,25 @@ export class InterpretResponseDto {
   @ApiProperty({
     type: [TermProposalDto],
     description:
-      'Structured missing-vocabulary-term proposals the UI can add inline, then re-interpret.',
+      'Structured missing-vocabulary-term proposals the UI can add inline, then re-interpret. ' +
+      'Surfaced only when the sandbox evaluation shows they improve the interpretation.',
   })
   termProposals!: TermProposalDto[];
 
-  static from(result: InterpretationResult): InterpretResponseDto {
+  @ApiPropertyOptional({
+    type: ProposalEvaluationDto,
+    nullable: true,
+    description:
+      'The sandbox proposal-evaluation verdict, or null when there were no proposals ' +
+      'to evaluate (no sandbox re-interpretation was performed).',
+  })
+  proposalEvaluation?: ProposalEvaluationDto | null;
+
+  static from(
+    result: InterpretationResult & {
+      proposalEvaluation?: ProposalEvaluation | null;
+    },
+  ): InterpretResponseDto {
     return {
       candidate:
         result.candidate === null
@@ -122,6 +191,11 @@ export class InterpretResponseDto {
       unmappedPhrases: result.unmappedPhrases,
       gaps: result.gaps,
       termProposals: result.termProposals,
+      proposalEvaluation:
+        result.proposalEvaluation === undefined ||
+        result.proposalEvaluation === null
+          ? null
+          : ProposalEvaluationDto.from(result.proposalEvaluation),
     };
   }
 }

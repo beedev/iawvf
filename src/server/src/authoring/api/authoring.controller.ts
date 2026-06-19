@@ -91,7 +91,10 @@ export class AuthoringController {
     }
 
     try {
-      const result = await this.interpreter.interpretScoped(
+      // Interpret AND sandbox-evaluate any missing-vocabulary proposals in a single
+      // pass: proposals are surfaced only when adding them demonstrably improves the
+      // interpretation (one extra LLM call, never a loop).
+      const result = await this.interpreter.interpretWithEvaluation(
         request.naturalLanguage,
         scope.subjects,
       );

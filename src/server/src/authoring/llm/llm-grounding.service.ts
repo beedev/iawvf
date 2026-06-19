@@ -11,7 +11,9 @@
 
 import { Injectable } from '@nestjs/common';
 
-import { GroundingVocabulary } from './interpreter';
+import { GroundingVocabulary, TermProposal } from './interpreter';
+
+import { GroundingSubject } from '../vocabulary-linter';
 
 import { DbReferenceDataLoader } from '../../rules/db-reference-data.provider';
 import {
@@ -46,6 +48,44 @@ export class LlmGroundingService {
   ): Promise<GroundingVocabulary> {
     const references = await this.referenceLoader.load();
     return this.assemble(subjects, references.referenceKeys());
+  }
+
+  /**
+   * Returns a NEW {@link GroundingVocabulary} that is {@link base} plus each
+   * {@link TermProposal} appended as a grounding subject (its `path`, `dataType`, and
+   * any `allowedValues`). This is an IN-MEMORY projection only — it does NOT touch the
+   * registry/DB. Used to SANDBOX-test whether the proposed terms would let the same
+   * sentence ground (a single extra interpret call), so proposals are surfaced only
+   * when they demonstrably help. Proposals whose path already exists in {@link base}
+   * are skipped (the base term wins); duplicate proposal paths are deduped.
+   */
+  augment(
+    base: GroundingVocabulary,
+    proposals: readonly TermProposal[],
+  ): GroundingVocabulary {
+    if (proposals.length === 0) {
+      return base;
+    }
+    const knownPaths = new Set(base.subjects.map((s) => s.path));
+    const appended: GroundingSubject[] = [];
+    for (const proposal of proposals) {
+      if (knownPaths.has(proposal.path)) {
+        continue;
+      }
+      knownPaths.add(proposal.path);
+      appended.push({
+        path: proposal.path,
+        dataType: proposal.dataType,
+        allowedValues: proposal.allowedValues ?? [],
+      });
+    }
+    if (appended.length === 0) {
+      return base;
+    }
+    return {
+      ...base,
+      subjects: [...base.subjects, ...appended],
+    };
   }
 
   private assemble(
